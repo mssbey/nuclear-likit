@@ -1,0 +1,156 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+    --header-h: 64px;
+    --font-sans: 'Inter';
+    --font-display: 'Space Grotesk';
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    scroll-padding-top: calc(var(--header-h) + 16px);
+  }
+
+  body {
+    @apply bg-bg font-sans text-fg antialiased;
+    font-feature-settings: 'cv11', 'ss01';
+  }
+
+  * {
+    @apply border-line;
+  }
+
+  ::selection {
+    @apply bg-accent text-accent-ink;
+  }
+
+  :focus-visible {
+    outline: 2px solid theme('colors.accent.DEFAULT');
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+
+  h1,
+  h2,
+  h3 {
+    @apply font-display font-semibold tracking-tight;
+  }
+
+  input,
+  select,
+  textarea {
+    font-size: 16px; /* iOS'ta odakta yakınlaştırmayı önler */
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer components {
+  .container-page {
+    @apply container;
+  }
+
+  .section {
+    @apply py-14 sm:py-20;
+  }
+
+  .eyebrow {
+    @apply inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-accent;
+  }
+
+  /* --- Düğmeler: tek birincil eylem, belirgin durumlar, min 44px dokunma alanı --- */
+  .btn {
+    @apply inline-flex min-h-11 cursor-pointer select-none items-center justify-center gap-2 rounded-xl px-5 text-sm font-semibold transition-[background-color,border-color,color,box-shadow,transform] duration-200 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100;
+  }
+  .btn-primary {
+    @apply btn bg-accent text-accent-ink hover:bg-accent-hover hover:shadow-glow;
+  }
+  .btn-secondary {
+    @apply btn border border-line-strong bg-surface-2 text-fg hover:border-accent/60 hover:bg-surface-3;
+  }
+  .btn-ghost {
+    @apply btn text-muted hover:bg-surface-2 hover:text-fg;
+  }
+
+  .field-label {
+    @apply mb-1.5 block text-xs font-semibold text-fg;
+  }
+  .field {
+    @apply min-h-11 w-full rounded-xl border border-line-strong bg-surface px-3.5 py-2.5 text-fg outline-none transition-colors placeholder:text-subtle hover:border-subtle focus:border-accent focus-visible:outline-none disabled:opacity-60;
+  }
+  .field[aria-invalid='true'] {
+    @apply border-danger;
+  }
+  .field-error {
+    @apply mt-1 text-xs text-danger;
+  }
+  .field-hint {
+    @apply mt-1 text-xs text-muted;
+  }
+
+  .card {
+    @apply rounded-2xl border border-line bg-surface;
+  }
+
+  .chip {
+    @apply inline-flex min-h-9 items-center gap-1.5 rounded-full border border-line-strong bg-surface px-3.5 text-sm text-muted transition-colors hover:border-accent/60 hover:text-fg;
+  }
+  .chip[aria-current='true'],
+  .chip[data-active='true'] {
+    @apply border-accent bg-accent-soft text-accent;
+  }
+
+  .link {
+    @apply text-fg underline decoration-line-strong underline-offset-4 transition-colors hover:decoration-accent;
+  }
+
+  /* Radyoaktif ızgara dokusu — dekoratif, içerik değil. */
+  .bg-grid {
+    background-image:
+      linear-gradient(to right, rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
+    background-size: 44px 44px;
+  }
+
+  .prose-dark {
+    @apply text-[15px] leading-7 text-muted;
+  }
+  .prose-dark h2,
+  .prose-dark h3 {
+    @apply mb-2 mt-6 text-fg;
+  }
+  .prose-dark p + p {
+    @apply mt-3;
+  }
+  .prose-dark strong {
+    @apply font-semibold text-fg;
+  }
+  .prose-dark ul {
+    @apply my-3 list-disc space-y-1 pl-5;
+  }
+}
+
+@layer utilities {
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}

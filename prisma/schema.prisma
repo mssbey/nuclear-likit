@@ -1,0 +1,1161 @@
+// Nefis Aroma — veri modeli.
+//
+// TAŞINABİLİRLİK KURALLARI (bozma):
+//  - Prisma `enum` KULLANILMAZ. Durum alanları `String`; izinli değerler
+//    `src/server/**` içindeki Zod birleşimleriyle doğrulanır. Sebep: Türkçe
+//    değerler ("ödeme-bekliyor") geçerli enum tanımlayıcısı değil ve Postgres'e
+//    geçişte native enum migrasyonu ek yük getirir.
+//  - Skaler liste (`String[]`) KULLANILMAZ — yalnız PostgreSQL'de var. Yerine `Json`.
+//  - Native tip niteleyicisi (`@db.*`) KULLANILMAZ.
+//  - Para: her zaman `Int`, KURUŞ cinsinden (`priceMinor: 12990` = 129,90 ₺).
+//  - Oran: her zaman `Int`, ON BİNDE (`rateBps: 2000` = %20).
+//  - Zaman: `DateTime` (UTC). Gösterim `Europe/Istanbul` katmanında yapılır.
+//
+// Üretimde PostgreSQL kullanılır (Vercel gibi sunucusuz ortamlarda SQLite
+// kalıcı değildir). Bağlantı `DATABASE_URL` üzerinden, adaptör
+// `src/server/db.ts` içinde kurulur.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================================== KATALOG =====
+
+model Category {
+  id            String  @id
+  /// Mağaza: mixle | nuclear — bkz. src/lib/stores.ts. Mevcut kayıtlar mixle.
+  store String @default("mixle")
+  slug          String  @unique
+  name          String
+  tagline       String  @default("")
+  description   String  @default("")
+  cover         String  @default("")
+  icon          String  @default("")
+  subcategories Json // string[] — eski serbest metin etiketleri (ürün filtresi)
+  accent        String  @default("purple") // purple|gold|fresh|dark
+  sortOrder     Int     @default(0)
+
+  /** WordPress'teki "üst kategori": boşsa kök kategori. */
+  parentId String?
+  parent   Category?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children Category[] @relation("CategoryTree")
+
+  version   Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  products ProductCategory[]
+
+  @@index([sortOrder])
+  @@index([parentId])
+  @@index([store])
+}
+
+model Collection {
+  id          String @id
+  /// Mağaza: mixle | nuclear — bkz. src/lib/stores.ts. Mevcut kayıtlar mixle.
+  store String @default("mixle")
+  slug        String @unique
+  name        String
+  subtitle    String @default("")
+  description String @default("")
+  cover       String @default("")
+  atmosphere  String @default("")
+  sortOrder   Int    @default(0)
+
+  version   Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  products ProductCollection[]
+
+  @@index([sortOrder])
+  @@index([store])
+}
+
+model Product {
+  id               String @id
+  /// Mağaza: mixle | nuclear — bkz. src/lib/stores.ts. Mevcut kayıtlar mixle.
+  store String @default("mixle")
+  slug             String @unique
+  name             String
+  series           String @default("")
+  shortDescription String @default("")
+  description      String @default("")
+  subcategory      String @default("")
+
+  /// taslak | yayında | arşiv
+  status String @default("taslak")
+
+  seoTitle       String @default("")
+  seoDescription String @default("")
+
+  tags           Json // string[]
+  flavorNotes    Json // { label, profile }[]
+  flavorProfiles Json // string[]
+  badges         Json // string[]
+  faq            Json // { question, answer }[]
+
+  featured   Boolean @default(false)
+  bestSeller Boolean @default(false)
+  newArrival Boolean @default(false)
+  /// "Yeni" damgası tarih aralığı. İkisi de boşsa `newArrival` / rozet süresiz geçerlidir.
+  newFrom    DateTime?
+  newUntil   DateTime?
+
+  // Tat radarı — 0-10 arası tam sayı (sorgulanabilir olsun diye ayrı sütunlar).
+  tasteSweetness Int @default(0)
+  tasteFreshness Int @default(0)
+  tasteIntensity Int @default(0)
+  tasteSourness  Int @default(0)
+  tasteCreaminess Int @default(0)
+
+  /// konsantre | shortfill | diy-kit | baz
+  form      String @default("konsantre")
+  usageRate String @default("")
+  steepTime String @default("")
+  origin    String @default("")
+
+  /// Kargo sınıfı etiketi (ör. "standart", "hacimli") — Stok Yönetimi ekranından girilir.
+  shippingClass String @default("")
+
+  /// Ürün bazında KDV override. Boşsa varsayılan oran uygulanır.
+  taxRateId String?
+  taxRate   TaxRate? @relation(fields: [taxRateId], references: [id], onDelete: SetNull)
+
+  version   Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  images      ProductImage[]
+  options     ProductOption[]
+  variants    Variant[]
+  categories  ProductCategory[]
+  collections ProductCollection[]
+
+  @@index([status])
+  @@index([featured])
+  @@index([bestSeller])
+  @@index([newArrival])
+  @@index([store])
+}
+
+/// Çöp kutusu: silinen ürünün tam anlık görüntüsü (AdminProduct JSON).
+/// Silme işlemi ürünü katalogdan kaldırır, buraya kopyalar; geri yükleme
+/// anlık görüntüyü aynı kimliklerle yeniden yazar. 30 gün sonra kalıcı silinir.
+model ProductTrash {
+  id        String   @id
+  /// Mağaza: mixle | nuclear — bkz. src/lib/stores.ts. Mevcut kayıtlar mixle.
+  store String @default("mixle")
+  slug      String
+  name      String
+  snapshot  Json
+  deletedBy String?
+  deletedAt DateTime @default(now())
+
+  @@index([deletedAt])
+  @@index([store])
+}
+
+/// Ürün ↔ kategori. `position` sırayı korur: vitrin birincil kategori olarak
+/// position=0 olanı kullanır (eski `categoryIds[0]` davranışı).
+model ProductCategory {
+  productId  String
+  categoryId String
+  position   Int    @default(0)
+
+  product  Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@id([productId, categoryId])
+  @@index([categoryId])
+}
+
+model ProductCollection {
+  productId    String
+  collectionId String
+  position     Int    @default(0)
+
+  product    Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  collection Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+
+  @@id([productId, collectionId])
+  @@index([collectionId])
+}
+
+model ProductImage {
+  id        String @id
+  productId String
+  src       String
+  /// Alternatif metin — erişilebilirlik için zorunlu, boş kaydedilemez.
+  alt       String
+  position  Int    @default(0)
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId, position])
+}
+
+/// DİKKAT: Seçenek kimlikleri ürün İÇİNDE benzersizdir, global değil
+/// ("opt-hacim" 100 üründe geçer). Bu yüzden birincil anahtar üretilir ve
+/// ürün içi kimlik `localId` sütununda tutulur — `Variant.optionValues` ve
+/// `comboKey` bu localId'ye referans verir.
+model ProductOption {
+  id        String @id @default(cuid())
+  productId String
+  localId   String
+  name      String
+  position  Int    @default(0)
+
+  product Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
+  values  OptionValue[]
+
+  @@unique([productId, localId])
+  @@index([productId, position])
+}
+
+model OptionValue {
+  id       String @id @default(cuid())
+  optionId String
+  localId  String
+  label    String
+  position Int    @default(0)
+
+  option ProductOption @relation(fields: [optionId], references: [id], onDelete: Cascade)
+
+  @@unique([optionId, localId])
+  @@index([optionId, position])
+}
+
+model Variant {
+  id        String @id
+  productId String
+
+  /// "optionId:valueId|optionId:valueId" — seçenek sırasına göre kombinasyon anahtarı.
+  comboKey     String
+  /// Record<optionId, valueId>
+  optionValues Json
+
+  sku                 String  @default("")
+  priceMinor          Int     @default(0)
+  compareAtPriceMinor Int?
+  stock               Int     @default(0)
+  barcode             String?
+  image               String?
+  isDefault           Boolean @default(false)
+  isActive            Boolean @default(true)
+  position            Int     @default(0)
+  /// Stok takibi açıkken adet (`stock`) izlenir ve 0'da otomatik "stokta yok"
+  /// olur. Kapalıyken adet kullanılmaz; satılabilirlik `inStock` ile elle seçilir.
+  trackStock          Boolean @default(true)
+  inStock             Boolean @default(true)
+  /// Kargo ağırlığı (gram) — bilgi amaçlı, Stok Yönetimi ekranından girilir.
+  weightGrams         Int?
+
+  version   Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  product      Product           @relation(fields: [productId], references: [id], onDelete: Cascade)
+  movements    StockMovement[]
+  reservations StockReservation[]
+
+  @@unique([productId, comboKey])
+  @@index([productId, position])
+  @@index([sku])
+}
+
+// ============================================================ MÜŞTERİ =======
+
+model Customer {
+  id           String  @id @default(cuid())
+  /// Mağaza: mixle | nuclear — bkz. src/lib/stores.ts. Mevcut kayıtlar mixle.
+  store String @default("mixle")
+  email        String
+  phone        String?
+  firstName    String  @default("")
+  lastName     String  @default("")
+  passwordHash String? // misafir müşteride null
+  isGuest      Boolean @default(true)
+
+  /// KVKK: pazarlama izni ayrı ve açık rıza; satın alma şartı değildir.
+  marketingOptIn   Boolean   @default(false)
+  marketingOptInAt DateTime?
+
+  /// Yalnız panelde görünür.
+  note String?
+  tags Json // string[] — "toptan", "VIP"
+
+  /// KVKK anonimleştirme damgası. Doluysa kişisel alanlar maskelenmiştir.
+  anonymizedAt DateTime?
+
+  version     Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  lastOrderAt DateTime?
+
+  addresses  Address[]
+  orders     Order[]
+  returns    ReturnRequest[]
+  sessions   CustomerSession[]
+  carts      Cart[]
+  resetTokens PasswordResetToken[]
+
+  @@index([createdAt])
+  @@index([lastOrderAt])
+  @@unique([store, email])
+  @@index([store])
+}
+
+model Address {
+  id         String  @id @default(cuid())
+  customerId String
+  /// fatura | teslimat
+  type       String  @default("teslimat")
+
+  title     String @default("")
+  firstName String @default("")
+  lastName  String @default("")
+  phone     String @default("")
+
+  country      String  @default("TR")
+  city         String  @default("")
+  district     String  @default("")
+  neighborhood String  @default("")
+  addressLine  String  @default("")
+  postalCode   String? // opsiyonel
+
+  isDefault Boolean @default(false)
+
+  // Kurumsal fatura
+  isCorporate Boolean @default(false)
+  companyName String?
+  taxOffice   String?
+  taxNumber   String? // VKN
+
+  /// TCKN — AES-256-GCM ile şifreli saklanır, panelde maskeli gösterilir.
+  identityNumberEnc String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId, type])
+}
+
+// ============================================================ SİPARİŞ =======
+
+model Order {
+  id          String  @id @default(cuid())
+  /// Mağaza: mixle | nuclear — bkz. src/lib/stores.ts. Mevcut kayıtlar mixle.
+  store String @default("mixle")
+  /// NA-2026-000123 — atomik sayaçtan üretilir (bkz. Counter).
+  orderNumber String  @unique
+  customerId  String?
+  guestEmail  String?
+
+  /// taslak|ödeme-bekliyor|ödendi|hazırlanıyor|kargolandı|teslim-edildi|
+  /// tamamlandı|iptal|iade-talebi|iade-edildi|başarısız
+  status            String @default("taslak")
+  /// bekliyor|kısmi|ödendi|başarısız|iade-edildi|kısmi-iade
+  paymentStatus     String @default("bekliyor")
+  /// hazırlanmadı|kısmi|gönderildi|teslim-edildi
+  fulfillmentStatus String @default("hazırlanmadı")
+
+  currency String @default("TRY")
+
+  itemsSubtotalMinor Int @default(0)
+  discountTotalMinor Int @default(0)
+  shippingTotalMinor Int @default(0)
+  taxTotalMinor      Int @default(0)
+  grandTotalMinor    Int @default(0)
+  refundedTotalMinor Int @default(0)
+
+  /// Sipariş anındaki adres kopyası (snapshot) — müşteri adresi sonradan
+  /// değişse bile sipariş bozulmaz.
+  billingAddress  Json
+  shippingAddress Json
+
+  couponCode     String?
+  couponSnapshot Json?
+
+  /// Otomatik uygulanan indirim kurallarının anlık görüntüsü:
+  /// [{ id, name, type, discountMinor }]
+  discountRulesSnapshot Json?
+
+  /// Kapıda ödeme gibi ek hizmet bedeli, kuruş.
+  surchargeMinor Int @default(0)
+  /// Oran bazında KDV matrahı dökümü: [{ rateBps, netMinor, taxMinor }]
+  taxBreakdown   Json?
+
+  /// havale | kapida | kart | mock — Payment satırındaki provider'ın listeleme
+  /// için denormalize kopyası.
+  paymentMethod  String @default("")
+  /// Seçilen kargo yönteminin anlık görüntüsü: { id, name, carrier, priceMinor, estimatedDays }
+  shippingMethod Json?
+
+  /// Çift sipariş engeli: aynı Idempotency-Key ile gelen istek aynı siparişi döndürür.
+  idempotencyKey String? @unique
+
+  customerNote String?
+  adminNote    String?
+
+  ipAddress String?
+  userAgent String?
+
+  /// Mesafeli satış onayları, kabul edilen metin SÜRÜMÜYLE birlikte:
+  /// { distanceSales: {version, acceptedAt}, preInfo: {...}, kvkk: {...} }
+  consents Json
+
+  /// web | telefon | panel — manuel sipariş kaynağı ayrımı.
+  source String @default("web")
+
+  version     Int       @default(0)
+  placedAt    DateTime  @default(now())
+  paidAt      DateTime?
+  cancelledAt DateTime?
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  customer     Customer?          @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  items        OrderItem[]
+  payments     Payment[]
+  shipments    Shipment[]
+  refunds      Refund[]
+  events       OrderEvent[]
+  returns      ReturnRequest[]
+  movements    StockMovement[]
+  emails       EmailLog[]
+  reservations StockReservation[]
+
+  @@index([status])
+  @@index([paymentStatus])
+  @@index([fulfillmentStatus])
+  @@index([placedAt])
+  @@index([customerId])
+  @@index([guestEmail])
+  @@index([store])
+}
+
+model OrderItem {
+  id        String  @id @default(cuid())
+  orderId   String
+  productId String?
+  variantId String?
+
+  // SNAPSHOT: ürün sonradan silinse/değişse bile sipariş kalemi bozulmaz.
+  name         String
+  variantLabel String @default("")
+  sku          String @default("")
+  imageUrl     String @default("")
+
+  unitPriceMinor Int
+  quantity       Int
+  discountMinor  Int @default(0)
+  /// KDV oranı on binde (2000 = %20)
+  taxRateBps     Int @default(0)
+  taxMinor       Int @default(0)
+  lineTotalMinor Int
+
+  refundedQuantity Int @default(0)
+
+  createdAt DateTime @default(now())
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@index([productId])
+  @@index([variantId])
+}
+
+/// Sipariş zaman çizelgesinin tek kaynağı: durum geçişleri, notlar, sistem olayları.
+model OrderEvent {
+  id      String @id @default(cuid())
+  orderId String
+
+  /// durum-degisti | not | odeme | kargo | iade | eposta | sistem
+  kind       String
+  fromStatus String?
+  toStatus   String?
+  message    String  @default("")
+  /// Müşteriye görünür mü (WooCommerce "customer note" karşılığı).
+  visibleToCustomer Boolean @default(false)
+  meta       Json?
+
+  userId    String?
+  createdAt DateTime @default(now())
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  user  User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([orderId, createdAt])
+}
+
+// ============================================================= ÖDEME ========
+
+model Payment {
+  id      String @id @default(cuid())
+  orderId String
+
+  /// iyzico|paytr|stripe|havale|kapida|mock
+  provider          String
+  providerPaymentId String?
+  /// başlatıldı|bekliyor|başarılı|başarısız|iptal|iade-edildi
+  status            String  @default("başlatıldı")
+
+  amountMinor Int
+  installment Int     @default(1)
+  /// Vade farkı (kuruş) — taksitli ödemede müşteriye yansıyan fark.
+  interestMinor Int   @default(0)
+
+  cardBrand String?
+  cardLast4 String?
+  threeDS   Boolean @default(false)
+
+  /// Sağlayıcı ham yanıtı — PAN/CVV/TCKN maskelenmiş olarak saklanır.
+  rawResponse Json?
+
+  errorCode    String?
+  errorMessage String?
+
+  createdAt  DateTime  @default(now())
+  capturedAt DateTime?
+  failedAt   DateTime?
+
+  order   Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  refunds Refund[]
+
+  @@index([orderId])
+  @@index([provider, status])
+  @@index([providerPaymentId])
+}
+
+model Refund {
+  id        String  @id @default(cuid())
+  orderId   String
+  paymentId String?
+
+  amountMinor Int
+  reason      String @default("")
+  /// tam | kısmi
+  type        String @default("kısmi")
+  /// bekliyor | tamamlandı | başarısız
+  status      String @default("bekliyor")
+
+  /// [{ orderItemId, quantity, amountMinor }]
+  items Json
+
+  createdByUserId  String?
+  providerRefundId String?
+  errorMessage     String?
+
+  createdAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  order   Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  payment Payment? @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  user    User?    @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+  returns ReturnRequest[]
+
+  @@index([orderId])
+  @@index([status])
+}
+
+// ============================================================= KARGO ========
+
+model Shipment {
+  id      String @id @default(cuid())
+  orderId String
+
+  /// yurtici|aras|mng|surat|ptt|kendi-kuryemiz|manuel
+  carrier        String
+  trackingNumber String?
+  trackingUrl    String?
+  labelUrl       String?
+
+  /// hazırlanıyor|paketlendi|kargoya-verildi|dağıtımda|teslim-edildi|iade-yolda|kayıp
+  status String @default("hazırlanıyor")
+
+  /// Kısmi sevkiyat: [{ orderItemId, quantity }]
+  items Json
+  /// Kargo firmasının durum geçmişi: [{ at, code, description }]
+  events Json
+
+  weightGrams Int?
+  desi        Int?
+  costMinor   Int?
+
+  version     Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  shippedAt   DateTime?
+  deliveredAt DateTime?
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@index([status])
+  @@index([trackingNumber])
+}
+
+model ShippingZone {
+  id        String @id @default(cuid())
+  /// Mağaza: mixle | nuclear — bkz. src/lib/stores.ts. Mevcut kayıtlar mixle.
+  store String @default("mixle")
+  name      String
+  /// string[] — ISO ülke kodları
+  countries Json
+  /// string[] — il adları; boşsa bölgedeki tüm iller
+  cities    Json
+  sortOrder Int    @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  methods ShippingMethod[]
+
+  @@index([sortOrder])
+  @@index([store])
+}
+
+model ShippingMethod {
+  id     String @id @default(cuid())
+  zoneId String
+  name   String
+
+  /// sabit|desi|tutara-göre|ücretsiz|kapıda
+  type          String @default("sabit")
+  priceMinor    Int    @default(0)
+  freeOverMinor Int?
+  /// Kademeli tarife: [{ upTo, priceMinor }] (desi veya sepet tutarı)
+  tiers         Json?
+  estimatedDays String @default("")
+  carrier       String?
+  isActive      Boolean @default(true)
+  sortOrder     Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  zone ShippingZone @relation(fields: [zoneId], references: [id], onDelete: Cascade)
+
+  @@index([zoneId, sortOrder])
+}
+
+// ============================================================== İADE ========
+
+model ReturnRequest {
+  id         String  @id @default(cuid())
+  orderId    String
+  customerId String?
+
+  /// talep|onaylandı|reddedildi|ürün-alındı|tamamlandı
+  status String @default("talep")
+
+  reason      String @default("")
+  description String @default("")
+  /// [{ orderItemId, quantity }]
+  items       Json
+  /// string[] — yüklenen görsel yolları
+  photos      Json
+
+  refundId       String?
+  resolutionNote String?
+  /// Kargo geri gönderim kodu
+  returnCode     String?
+
+  requestedAt DateTime  @default(now())
+  resolvedAt  DateTime?
+
+  order    Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  refund   Refund?   @relation(fields: [refundId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([orderId])
+}
+
+// ============================================================= KUPON ========
+
+model Coupon {
+  id   String @id @default(cuid())
+  /// Mağaza: mixle | nuclear — bkz. src/lib/stores.ts. Mevcut kayıtlar mixle.
+  store String @default("mixle")
+  code String
+
+  /// yüzde|tutar|ücretsiz-kargo
+  type String
+  /// yüzde tipinde on binde (2000 = %20); tutar tipinde kuruş.
+  value Int
+
+  minCartTotalMinor Int?
+  maxDiscountMinor  Int?
+
+  startsAt DateTime?
+  endsAt   DateTime?
+
+  usageLimit            Int?
+  usageLimitPerCustomer Int?
+  usedCount             Int @default(0)
+
+  /// string[]
+  includeProductIds  Json
+  excludeProductIds  Json
+  includeCategoryIds Json
+
+  firstOrderOnly Boolean @default(false)
+  isActive       Boolean @default(true)
+  stackable      Boolean @default(false)
+
+  version   Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  redemptions CouponRedemption[]
+
+  @@index([isActive])
+  @@unique([store, code])
+  @@index([store])
+}
+
+/// Kupon kullanımının kaydı — "müşteri başına limit" ve iptalde geri alma için.
+model CouponRedemption {
+  id         String  @id @default(cuid())
+  couponId   String
+  orderId    String
+  customerId String?
+  email      String?
+
+  amountMinor Int      @default(0)
+  /// Sipariş iptal/iade edilince kullanım geri alınır.
+  revokedAt   DateTime?
+  createdAt   DateTime @default(now())
+
+  coupon Coupon @relation(fields: [couponId], references: [id], onDelete: Cascade)
+
+  @@unique([couponId, orderId])
+  @@index([customerId])
+  @@index([email])
+}
+
+/// Gelişmiş indirim kuralı — kupon kodu GEREKTİRMEZ, checkout'ta uygun sepete
+/// otomatik uygulanır. Değerlendirme mantığı `src/server/pricing/discount-rules.ts`
+/// içinde saftır; burası yalnız tabloyu tanımlar.
+model DiscountRule {
+  id   String @id @default(cuid())
+  /// Mağaza: mixle | nuclear — bkz. src/lib/stores.ts. Mevcut kayıtlar mixle.
+  store String @default("mixle")
+  name String
+
+  /// sepet-yuzde | x-al-y-ode
+  type String
+
+  isActive  Boolean @default(true)
+  /// Küçük değer önce uygulanır.
+  priority  Int     @default(0)
+  /// false ise bu kural uygulandıktan sonra kalan kurallar atlanır.
+  stackable Boolean @default(true)
+
+  /// string[] — boşsa tüm kategoriler.
+  includeCategoryIds Json
+  /// string[] — boşsa tüm ürünler (kategori filtresiyle kesişir).
+  includeProductIds  Json
+
+  // sepet-yuzde: on binde (3000 = %30)
+  percentBps        Int  @default(0)
+  // sepet-yuzde: sepet ara toplamı eşiği, kuruş (null = yok)
+  minCartTotalMinor Int?
+
+  // x-al-y-ode
+  buyQuantity Int? // X
+  payQuantity Int? // Y — bedava adet = X - Y
+  minQuantity Int? // kuralın tetiklenmesi için min uygun ürün adedi (null → X)
+
+  startsAt DateTime?
+  endsAt   DateTime?
+
+  version   Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive])
+  @@index([store])
+}
+
+// ============================================================== STOK ========
+
+model StockMovement {
+  id        String @id @default(cuid())
+  variantId String
+  delta     Int
+  /// sipariş|iptal|iade|manuel|giriş|çıkış|csv|sayım|fire|rezervasyon-iptal
+  reason    String
+  orderId   String?
+  note      String  @default("")
+  /// Hareket sonrası stok — denetim için dondurulmuş değer.
+  stockAfter Int
+
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+
+  variant Variant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  order   Order?  @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  user    User?   @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([variantId, createdAt])
+  @@index([orderId])
+}
+
+/// Checkout sırasında geçici stok rezervasyonu. `expiresAt` geçince serbest kalır.
+model StockReservation {
+  id        String   @id @default(cuid())
+  variantId String
+  orderId   String?
+  cartId    String?
+  quantity  Int
+  expiresAt DateTime
+  releasedAt DateTime?
+  createdAt DateTime @default(now())
+
+  variant Variant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  order   Order?  @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  @@index([variantId])
+  @@index([expiresAt])
+}
+
+// ============================================================== SEPET =======
+
+/// Sunucu tarafı sepet — terk edilmiş sepet raporu ve hatırlatma e-postası için.
+model Cart {
+  id         String  @id @default(cuid())
+  /// Mağaza: mixle | nuclear — bkz. src/lib/stores.ts. Mevcut kayıtlar mixle.
+  store String @default("mixle")
+  token      String  @unique
+  customerId String?
+  email      String?
+  couponCode String?
+
+  itemsSubtotalMinor Int @default(0)
+
+  abandonedAt DateTime?
+  convertedAt DateTime?
+  remindedAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  customer Customer?  @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  items    CartItem[]
+
+  @@index([abandonedAt])
+  @@index([updatedAt])
+  @@index([store])
+}
+
+model CartItem {
+  id        String @id @default(cuid())
+  cartId    String
+  productId String
+  variantId String
+  quantity  Int    @default(1)
+
+  createdAt DateTime @default(now())
+
+  cart Cart @relation(fields: [cartId], references: [id], onDelete: Cascade)
+
+  @@unique([cartId, variantId])
+}
+
+// ============================================================== VERGİ =======
+
+model TaxRate {
+  id String @id @default(cuid())
+  /// "KDV %20"
+  name String
+  /// On binde: 2000 = %20, 100 = %1
+  rateBps   Int
+  isDefault Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  products Product[]
+}
+
+// ====================================================== KULLANICI / AUTH ====
+
+model User {
+  id           String  @id @default(cuid())
+  email        String  @unique
+  passwordHash String
+  name         String  @default("")
+  /// sahip|yönetici|editör|sipariş-sorumlusu|görüntüleyici
+  role         String  @default("görüntüleyici")
+  isActive     Boolean @default(true)
+
+  lastLoginAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  sessions    Session[]
+  auditLogs   AuditLog[]
+  orderEvents OrderEvent[]
+  refunds     Refund[]
+  movements   StockMovement[]
+  resetTokens PasswordResetToken[]
+
+  @@index([role])
+}
+
+/// Admin oturumu. Çerezde imzalı jeton taşınır; bu tablo oturumu tek tek
+/// iptal edebilmek (ve "tüm cihazlardan çık") için tutulur.
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  expiresAt DateTime
+  rememberMe Boolean @default(false)
+  ip        String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  revokedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model CustomerSession {
+  id         String   @id @default(cuid())
+  customerId String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  revokedAt  DateTime?
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@index([expiresAt])
+}
+
+/// Parola sıfırlama — jeton yalnız hash'i saklanır, tek kullanımlıktır.
+model PasswordResetToken {
+  id         String   @id @default(cuid())
+  tokenHash  String   @unique
+  userId     String?
+  customerId String?
+  expiresAt  DateTime
+  usedAt     DateTime?
+  createdAt  DateTime @default(now())
+
+  user     User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
+}
+
+/// Brute-force koruması: IP + e-posta bazlı deneme sayacı.
+model LoginAttempt {
+  id        String   @id @default(cuid())
+  email     String
+  ip        String
+  success   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([email, createdAt])
+  @@index([ip, createdAt])
+}
+
+model AuditLog {
+  id     String  @id @default(cuid())
+  userId String?
+  /// Kullanıcı silinse bile kim olduğu kalsın diye kopyalanır.
+  userEmail String @default("")
+
+  /// olustur|guncelle|sil|durum-degistir|giris|cikis|iade|odeme|stok|ayar
+  action     String
+  entityType String
+  entityId   String
+  /// { alan: { before, after } }
+  diff       Json
+  ip         String?
+  createdAt  DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@index([userId])
+}
+
+// =========================================================== AYAR / SİSTEM ==
+
+model Setting {
+  key   String @id
+  value Json
+  /// true ise değer AES-256-GCM ile şifrelidir ve panelde maskeli gösterilir.
+  isSecret Boolean @default(false)
+
+  updatedAt       DateTime @updatedAt
+  updatedByUserId String?
+}
+
+/// Atomik sayaç — sipariş numarası üretimi (NA-2026-000123).
+model Counter {
+  key   String @id
+  value Int    @default(0)
+}
+
+model EmailLog {
+  id       String  @id @default(cuid())
+  to       String
+  template String
+  subject  String
+  /// kuyrukta|gönderildi|başarısız|demo-yakalandı
+  status   String  @default("kuyrukta")
+  orderId  String?
+  /// DEMO_MODE'da gerçek gönderim yapılmaz; gövde burada tutulup panelde gösterilir.
+  body     String?
+  error    String?
+
+  createdAt DateTime  @default(now())
+  sentAt    DateTime?
+
+  order Order? @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@index([status, createdAt])
+}
+
+/// Gelen webhook'ların idempotent işlenmesi. `externalId` sağlayıcının olay
+/// kimliğidir; aynı olay iki kez gelirse ikinci kez işlenmez.
+model WebhookEvent {
+  id         String @id @default(cuid())
+  provider   String
+  externalId String
+
+  payload     Json
+  processedAt DateTime?
+  error       String?
+  createdAt   DateTime  @default(now())
+
+  @@unique([provider, externalId])
+  @@index([processedAt])
+}
+
+// ============================================================ İÇERİK ========
+
+/// Medya kütüphanesi (WordPress benzeri).
+model MediaAsset {
+  id        String @id @default(cuid())
+  path      String @unique
+  fileName  String
+  mimeType  String
+  sizeBytes Int    @default(0)
+  width     Int?
+  height    Int?
+  alt       String @default("")
+  /// string[]
+  tags      Json
+
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([createdAt])
+}
+
+/// Panelden düzenlenen statik sayfalar (SSS, hakkımızda, kampanya...).
+model Page {
+  id      String @id @default(cuid())
+  /// Mağaza: mixle | nuclear — bkz. src/lib/stores.ts. Mevcut kayıtlar mixle.
+  store String @default("mixle")
+  slug    String @unique
+  title   String
+  /// Markdown veya blok JSON
+  body    String @default("")
+  /// taslak | yayında
+  status  String @default("taslak")
+  seoTitle       String @default("")
+  seoDescription String @default("")
+
+  version   Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([store])
+}
+
+// ========================================================== PAZARLAMA ======
+
+/// Footer / kampanya e-posta bülteni kaydı. Tekrar kayıt aktife çeker;
+/// panelde "Bülten Kayıtları" ekranından listelenir.
+model NewsletterSubscriber {
+  id     String @id @default(cuid())
+  /// Mağaza: mixle | nuclear — bkz. src/lib/stores.ts. Mevcut kayıtlar mixle.
+  store String @default("mixle")
+  email  String
+  /// aktif | çıkış
+  status String @default("aktif")
+  /// footer | checkout | popup | panel
+  source String @default("footer")
+
+  ip        String?
+  userAgent String?
+
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  unsubscribedAt DateTime?
+
+  @@index([status, createdAt])
+  @@unique([store, email])
+  @@index([store])
+}
+
+/// Footer SMS / bilgilendirme kaydı (KVKK: açık rıza ile).
+model SmsSubscriber {
+  id     String @id @default(cuid())
+  /// Mağaza: mixle | nuclear — bkz. src/lib/stores.ts. Mevcut kayıtlar mixle.
+  store String @default("mixle")
+  phone  String
+  status String @default("aktif")
+  source String @default("footer")
+
+  ip        String?
+  userAgent String?
+
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  unsubscribedAt DateTime?
+
+  @@index([status, createdAt])
+  @@unique([store, phone])
+  @@index([store])
+}
+
+/// Yasal metinler SÜRÜMLENİR: metin değişince yeni sürüm oluşur, eski
+/// siparişler kabul ettikleri sürümü göstermeye devam eder.
+model LegalDocument {
+  id   String @id @default(cuid())
+  /// Mağaza: mixle | nuclear — bkz. src/lib/stores.ts. Mevcut kayıtlar mixle.
+  store String @default("mixle")
+  /// mesafeli-satis | on-bilgilendirme | kvkk-aydinlatma | gizlilik | cerez
+  kind    String
+  version Int
+  title   String
+  body    String
+  /// Yayına alındığı an; null ise taslak.
+  publishedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@unique([store, kind, version])
+  @@index([store, kind, publishedAt])
+  @@index([store])
+}
