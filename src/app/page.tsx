@@ -16,10 +16,10 @@ export default async function HomePage() {
 
   return (
     <>
-      <Hero spotlight={home.featured[0]} productCount={home.total} />
+      <Hero spotlight={home.featured[0]} flavors={categories.map((c) => c.name)} />
 
       {home.total === 0 ? (
-        <div className="container-page py-16">
+        <div id="koleksiyon" className="container-page py-16">
           <EmptyState
             icon={Sparkles}
             title="Mağaza hazırlanıyor"

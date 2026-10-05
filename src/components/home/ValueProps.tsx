@@ -12,7 +12,7 @@ export function ValueProps() {
     <section aria-label="Neden Nuclear Likit" className="container-page py-12">
       <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {ITEMS.map(({ icon: Icon, title, text }) => (
-          <li key={title} className="card flex gap-4 p-5">
+          <li key={title} className="card value-card flex gap-4 p-6">
             <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-accent-soft text-accent">
               <Icon size={22} aria-hidden="true" />
             </span>

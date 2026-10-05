@@ -45,11 +45,11 @@ export function Header({ links }: { links: NavLink[] }) {
     <>
       <header
         className={cn(
-          'sticky top-0 z-40 border-b transition-colors duration-300',
+          'store-header sticky top-0 z-40 border-b transition-colors duration-300',
           scrolled ? 'border-line bg-bg/85 backdrop-blur-xl' : 'border-transparent bg-bg',
         )}
       >
-        <div className="container-page flex h-16 items-center gap-3">
+        <div className="container-page flex h-20 items-center gap-3">
           <button
             type="button"
             className="btn-ghost -ml-2 w-11 px-0 lg:hidden"

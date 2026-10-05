@@ -10,7 +10,7 @@ export function CategoryTiles({ categories }: { categories: CategoryNode[] }) {
   const feature = list.length >= 5;
   const cols = feature ? 'lg:grid-cols-4' : ({ 1: 'lg:grid-cols-1', 2: 'lg:grid-cols-2', 3: 'lg:grid-cols-3', 4: 'lg:grid-cols-4' } as Record<number, string>)[list.length];
   return (
-    <section aria-labelledby="cat-title" className="container-page py-12 sm:py-16">
+    <section aria-labelledby="cat-title" id="koleksiyon" className="container-page py-14 sm:py-20">
       <div className="mb-6 flex items-end justify-between gap-4">
         <div>
           <p className="eyebrow mb-2">Kategoriler</p>
@@ -27,7 +27,7 @@ export function CategoryTiles({ categories }: { categories: CategoryNode[] }) {
           <li key={c.id} className={i === 0 && feature ? 'col-span-2 lg:row-span-2' : ''}>
             <Link
               href={`/kategori/${c.slug}`}
-              className="group relative flex h-full min-h-40 flex-col justify-end overflow-hidden rounded-2xl border border-line bg-surface p-5 transition-colors hover:border-accent/50 sm:min-h-48"
+              className="collection-tile group relative flex h-full min-h-48 flex-col justify-end overflow-hidden rounded-2xl border border-line bg-surface p-5 transition-colors hover:border-accent/50 sm:min-h-56"
             >
               {c.cover ? (
                 <Image
@@ -41,6 +41,7 @@ export function CategoryTiles({ categories }: { categories: CategoryNode[] }) {
                 <span className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-accent/10 blur-2xl transition-opacity group-hover:bg-accent/20" />
               )}
               <span className="absolute inset-0 bg-gradient-to-t from-bg via-bg/40 to-transparent" />
+              <span className="collection-index" aria-hidden="true">/ {String(i + 1).padStart(2, '0')}</span>
               <span className="relative">
                 <span className="tabular text-xs font-semibold text-accent">{c.productCount} ürün</span>
                 <span className={`mt-1 flex items-center justify-between gap-2 font-display font-semibold text-fg ${i === 0 && feature ? 'text-2xl sm:text-3xl' : 'text-xl'}`}>
