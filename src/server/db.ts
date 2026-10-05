@@ -40,17 +40,20 @@ function poolMax(): number {
 }
 
 function createClient(): PrismaClient {
-  const adapter = new PrismaPg({ connectionString: databaseUrl(), max: poolMax() });
+  // Sunucusuz örnekler uzun süre sıcak kalır; boştaki bağlantılar hemen
+  // bırakılmazsa üç vitrin + panel Prisma Postgres kotasını doldurur.
+  const adapter = new PrismaPg({
+    connectionString: databaseUrl(),
+    max: poolMax(),
+    idleTimeoutMillis: 5_000,
+  });
   return new PrismaClient({
     adapter,
     log: process.env.NODE_ENV === 'development' ? ['warn', 'error'] : ['error'],
   });
 }
 
-// Dev'de sıcak yeniden yükleme her seferinde yeni bir istemci üretip bağlantı
-// sızdırmasın diye globalThis üzerinde saklanır.
-export const db: PrismaClient = globalThis.__nefisPrisma ?? createClient();
-
-if (process.env.NODE_ENV !== 'production') {
-  globalThis.__nefisPrisma = db;
-}
+// globalThis üzerinde saklanır: dev'de sıcak yeniden yükleme, üretimde ise bu
+// modülün birden çok paket parçasına (sayfa, route handler…) kopyalanması her
+// seferinde ayrı bir havuz açıp bağlantı kotasını katlamasın.
+export const db: PrismaClient = (globalThis.__nefisPrisma ??= createClient());
