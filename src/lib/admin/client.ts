@@ -54,7 +54,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 
 export interface CatalogResponse {
   catalog: CatalogFile;
-  meta: { user: AdminSessionUser; permissions: Permission[]; store: StoreId };
+  meta: { user: AdminSessionUser; permissions: Permission[]; store: StoreId; storeUrl: string };
 }
 
 export const adminApi = {

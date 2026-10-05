@@ -128,7 +128,9 @@ export interface StoreBrand {
 export async function getStoreBrand(): Promise<StoreBrand> {
   const store = currentStore();
   const info = await getStoreInfo();
-  const fallbackUrl = store === deploymentStore() ? site.domain : '';
+  // Ayarlarda "Vitrin adresi" boşsa: bu dağıtımın kendi mağazası için site
+  // adresi, diğer mağazalar için `STORE_URL_<KİMLİK>` (ör. STORE_URL_KANZI).
+  const fallbackUrl = store === deploymentStore() ? site.domain : (process.env[`STORE_URL_${store.toUpperCase()}`] ?? '');
   return {
     name: info.tradeName || STORE_META[store].label,
     url: (info.siteUrl || fallbackUrl).replace(/\/$/, ''),

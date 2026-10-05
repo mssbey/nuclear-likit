@@ -32,9 +32,14 @@ export function previewExitPath(back: string): string {
 /**
  * Panelde "vitrinde aç" düğmesinin hedefi. Yayındaki ürün için Draft Mode
  * gereksizdir; doğrudan gerçek adres açılır ki müşterinin gördüğü sayfa görülsün.
+ *
+ * `storeUrl`: seçili mağaza başka bir alan adındaysa (Nuclear, KanziVape) o
+ * vitrinin kökü. Taslak ürün yine `/api/admin/preview`'a gider; o uç imzalı
+ * bağlantıyla doğru vitrine yönlendirir.
  */
-export function openInStorefrontPath(slug: string, status: ProductStatus): string {
-  return status === 'yayında' ? storefrontPath(slug) : previewPath(slug);
+export function openInStorefrontPath(slug: string, status: ProductStatus, storeUrl = ''): string {
+  if (status !== 'yayında') return previewPath(slug);
+  return `${storeUrl.replace(/\/$/, '')}${storefrontPath(slug)}`;
 }
 
 /** Yalnızca site içi, tek eğik çizgiyle başlayan yollara izin ver (açık yönlendirme koruması). */
