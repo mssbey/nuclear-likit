@@ -21,6 +21,28 @@ function databaseUrl(): string {
       'DATABASE_URL tanımlı değil. .env dosyasına bir PostgreSQL bağlantı dizesi ekleyin (bkz. .env.example).',
     );
   }
+  return pooledUrl(url);
+}
+
+/**
+ * Prisma Postgres doğrudan adresi (`db.prisma.io`) rol başına ~45 bağlantıyla
+ * sınırlı; üç vitrin + panelin sunucusuz örnekleri bunu doldurunca "Too many
+ * database connections opened" hatası çıkar. Havuzlu adres
+ * (`pooled.db.prisma.io`) aynı kimlik bilgileriyle çalışır ve istemci
+ * bağlantılarını az sayıda sunucu bağlantısına katlar, yani kota dolmaz.
+ * Migrasyon/script'ler bu modülü kullanmaz; onlar doğrudan adreste kalır.
+ */
+function pooledUrl(url: string): string {
+  if (process.env.DATABASE_DIRECT === '1') return url;
+  try {
+    const u = new URL(url);
+    if (u.hostname === 'db.prisma.io') {
+      u.hostname = 'pooled.db.prisma.io';
+      return u.toString();
+    }
+  } catch {
+    // Ayrıştırılamayan dize olduğu gibi kullanılır.
+  }
   return url;
 }
 
