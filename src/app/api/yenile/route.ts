@@ -23,6 +23,9 @@ export async function POST(request: Request) {
   if (!authorized(request)) {
     return Response.json({ error: 'unauthorized' }, { status: 401 });
   }
-  for (const tag of TAGS) revalidateTag(tag, 'max');
+  // `{ expire: 0 }`: bir sonraki istek eski içeriği GÖRMEZ, doğrudan yeniden üretilir.
+  // ('max' bayat içeriği bir kez daha sunup arkada yenilerdi; panelden ürün
+  // kaydedip siteye bakan yönetici eski sayfayı görüyordu.)
+  for (const tag of TAGS) revalidateTag(tag, { expire: 0 });
   return Response.json({ ok: true, tags: TAGS });
 }
