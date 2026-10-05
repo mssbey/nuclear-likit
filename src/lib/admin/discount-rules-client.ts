@@ -2,10 +2,10 @@
 
 // Panel indirim kuralı uçları için istemci sarmalayıcısı.
 
-import { ApiError } from './client';
+import { ApiError, fetchWithRetry } from './client';
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, {
+  const res = await fetchWithRetry(url, {
     ...init,
     headers: { 'content-type': 'application/json', ...(init?.headers ?? {}) },
   });

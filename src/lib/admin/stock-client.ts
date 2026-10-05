@@ -2,11 +2,11 @@
 
 // Panel stok uçları için istemci sarmalayıcısı.
 
-import { ApiError } from './client';
+import { ApiError, fetchWithRetry } from './client';
 import type { CsvRow, ManagerData, ManagerSaveInput, ManagerSaveResult } from './stock-manager';
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, { ...init, headers: { 'content-type': 'application/json', ...(init?.headers ?? {}) } });
+  const res = await fetchWithRetry(url, { ...init, headers: { 'content-type': 'application/json', ...(init?.headers ?? {}) } });
   const isJson = res.headers.get('content-type')?.includes('application/json');
   const payload = isJson ? await res.json().catch(() => null) : null;
   if (!res.ok) {

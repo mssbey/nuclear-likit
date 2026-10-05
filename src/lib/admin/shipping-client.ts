@@ -3,10 +3,10 @@
 // Panel kargo uçları için istemci sarmalayıcısı: sevkiyat listesi, bölge/tarife
 // yönetimi, taşıyıcı ayarları.
 
-import { ApiError } from './client';
+import { ApiError, fetchWithRetry } from './client';
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, { ...init, headers: { 'content-type': 'application/json', ...(init?.headers ?? {}) } });
+  const res = await fetchWithRetry(url, { ...init, headers: { 'content-type': 'application/json', ...(init?.headers ?? {}) } });
   const isJson = res.headers.get('content-type')?.includes('application/json');
   const payload = isJson ? await res.json().catch(() => null) : null;
   if (!res.ok) {

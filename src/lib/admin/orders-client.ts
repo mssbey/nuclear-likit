@@ -7,10 +7,10 @@ import type { OrderTab } from '@/server/orders/order-tabs';
 import type { OrderStatus } from '@/server/orders/state-machine';
 import type { Carrier, ShipmentStatus } from '@/server/shipping/carriers';
 import type { AddressInput } from '@/server/customers/address-schema';
-import { ApiError } from './client';
+import { ApiError, fetchWithRetry } from './client';
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, {
+  const res = await fetchWithRetry(url, {
     ...init,
     headers: { 'content-type': 'application/json', ...(init?.headers ?? {}) },
   });

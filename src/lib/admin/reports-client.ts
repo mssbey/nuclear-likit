@@ -2,10 +2,10 @@
 
 // Panel rapor uçları için istemci sarmalayıcısı.
 
-import { ApiError } from './client';
+import { ApiError, fetchWithRetry } from './client';
 
 async function request<T>(url: string): Promise<T> {
-  const res = await fetch(url, { cache: 'no-store' });
+  const res = await fetchWithRetry(url, { cache: 'no-store' });
   const isJson = res.headers.get('content-type')?.includes('application/json');
   const payload = isJson ? await res.json().catch(() => null) : null;
   if (!res.ok) {

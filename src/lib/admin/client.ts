@@ -35,8 +35,34 @@ export class ApiError extends Error {
   }
 }
 
+// Okuma isteklerinde (GET) sunucu/bağlantı hatası olursa bekleyip yeniden dene;
+// anlık yoğunlukta "Katalog yüklenemedi" ekranı çıkmasın. Yazmalar tekrar
+// denenmez (iki kez kaydetme riski).
+const GET_RETRY_DELAYS_MS = [800, 2_000, 4_000];
+
+/** fetch + okuma isteklerinde otomatik yeniden deneme. Tüm panel istemcileri bunu kullanır. */
+export async function fetchWithRetry(url: string, init?: RequestInit): Promise<Response> {
+  const isRead = !init?.method || init.method.toUpperCase() === 'GET';
+  for (let attempt = 0; ; attempt++) {
+    const delay = isRead ? GET_RETRY_DELAYS_MS[attempt] : undefined;
+    let res: Response;
+    try {
+      res = await fetch(url, init);
+    } catch {
+      if (delay === undefined) throw new ApiError('Sunucuya ulaşılamadı. İnternet bağlantınızı kontrol edip tekrar deneyin.', 0);
+      await new Promise((r) => setTimeout(r, delay));
+      continue;
+    }
+    if (res.status >= 500 && delay !== undefined) {
+      await new Promise((r) => setTimeout(r, delay));
+      continue;
+    }
+    return res;
+  }
+}
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, {
+  const res = await fetchWithRetry(url, {
     ...init,
     headers: { 'content-type': 'application/json', ...(init?.headers ?? {}) },
   });

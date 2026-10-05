@@ -2,10 +2,10 @@
 
 // Panel medya kütüphanesi uçları için istemci sarmalayıcısı.
 
-import { ApiError } from './client';
+import { ApiError, fetchWithRetry } from './client';
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, init);
+  const res = await fetchWithRetry(url, init);
   const isJson = res.headers.get('content-type')?.includes('application/json');
   const payload = isJson ? await res.json().catch(() => null) : null;
   if (!res.ok) {

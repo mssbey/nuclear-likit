@@ -8,6 +8,7 @@
 
 import 'server-only';
 import { PrismaPg } from '@prisma/adapter-pg';
+import pg from 'pg';
 import { PrismaClient } from '@/generated/prisma/client';
 
 declare global {
@@ -38,6 +39,9 @@ function pooledUrl(url: string): string {
     const u = new URL(url);
     if (u.hostname === 'db.prisma.io') {
       u.hostname = 'pooled.db.prisma.io';
+      // pg 8'de 'require' zaten 'verify-full' gibi davranır; açıkça yazınca her
+      // istekte loglara düşen SSL uyarısı kesilir (davranış aynı).
+      if (u.searchParams.get('sslmode') === 'require') u.searchParams.set('sslmode', 'verify-full');
       return u.toString();
     }
   } catch {
@@ -61,14 +65,66 @@ function poolMax(): number {
   return process.env.NEXT_PHASE === 'phase-production-build' ? 1 : 4;
 }
 
+/** Bağlantı açılırken alınan, kısa süre sonra kendiliğinden geçen hatalar. */
+function isTransientConnectError(err: unknown): boolean {
+  const e = err as { code?: unknown; message?: unknown };
+  const code = typeof e?.code === 'string' ? e.code : '';
+  const msg = typeof e?.message === 'string' ? e.message : '';
+  return (
+    code === '53300' || // too_many_connections
+    code === '57P03' || // cannot_connect_now
+    code === 'ECONNRESET' ||
+    code === 'ETIMEDOUT' ||
+    code === 'ECONNREFUSED' ||
+    /too many connections|connection slots|upstream database|Connection terminated|timeout expired/i.test(msg)
+  );
+}
+
+const CONNECT_RETRY_DELAYS_MS = [200, 600, 1_500, 3_000];
+
+/**
+ * Bağlantı alınamazsa birkaç kez bekleyip yeniden dener. Sorgu henüz
+ * gönderilmediği için (hata bağlanma anında) tekrar denemek yazmalarda da
+ * güvenlidir; anlık yoğunlukta panel/vitrin hata yerine biraz geç yanıt verir.
+ */
+class RetryingPool extends pg.Pool {
+  private async connectWithRetry(): Promise<pg.PoolClient> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await super.connect();
+      } catch (err) {
+        const delay = CONNECT_RETRY_DELAYS_MS[attempt];
+        if (delay === undefined || !isTransientConnectError(err)) throw err;
+        await new Promise((r) => setTimeout(r, delay + Math.random() * 200));
+      }
+    }
+  }
+
+  // pg.Pool.query() bunu geri çağırmalı biçimde, adaptör ise Promise ile çağırır.
+  override connect(): Promise<pg.PoolClient>;
+  override connect(cb: (err: Error | undefined, client: pg.PoolClient | undefined, done: (release?: unknown) => void) => void): void;
+  override connect(cb?: (err: Error | undefined, client: pg.PoolClient | undefined, done: (release?: unknown) => void) => void): Promise<pg.PoolClient> | void {
+    const p = this.connectWithRetry();
+    if (!cb) return p;
+    p.then(
+      (client) => cb(undefined, client, (release) => client.release(release as Error | boolean | undefined)),
+      (err: Error) => cb(err, undefined, () => {}),
+    );
+  }
+}
+
 function createClient(): PrismaClient {
   // Sunucusuz örnekler uzun süre sıcak kalır; boştaki bağlantılar hemen
   // bırakılmazsa üç vitrin + panel Prisma Postgres kotasını doldurur.
-  const adapter = new PrismaPg({
+  const pool = new RetryingPool({
     connectionString: databaseUrl(),
     max: poolMax(),
     idleTimeoutMillis: 5_000,
+    connectionTimeoutMillis: 10_000,
   });
+  // Boştaki bir bağlantı sunucu tarafında koparsa süreç çökmesin.
+  pool.on('error', (err) => console.error('[db] boştaki bağlantı hatası', err.message));
+  const adapter = new PrismaPg(pool);
   return new PrismaClient({
     adapter,
     // Varsayılan 5 sn, uzak veritabanında çok kalemli sipariş/iade/durum
