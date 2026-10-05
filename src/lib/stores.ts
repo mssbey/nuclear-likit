@@ -7,7 +7,7 @@
 //
 // İstemci tarafında da import edilir; sunucuya özgü kod içermez.
 
-export const STORES = ['mixle', 'nuclear'] as const;
+export const STORES = ['mixle', 'nuclear', 'kanzi'] as const;
 
 export type StoreId = (typeof STORES)[number];
 
@@ -24,6 +24,7 @@ export interface StoreMeta {
 export const STORE_META: Record<StoreId, StoreMeta> = {
   mixle: { id: 'mixle', label: 'Mixle', orderPrefix: 'NA' },
   nuclear: { id: 'nuclear', label: 'Nuclear Likit', orderPrefix: 'NL' },
+  kanzi: { id: 'kanzi', label: 'KanziVape', orderPrefix: 'KV' },
 };
 
 export function isStoreId(value: unknown): value is StoreId {
