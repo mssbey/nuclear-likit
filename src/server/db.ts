@@ -71,6 +71,9 @@ function createClient(): PrismaClient {
   });
   return new PrismaClient({
     adapter,
+    // Varsayılan 5 sn, uzak veritabanında çok kalemli sipariş/iade/durum
+    // işlemlerinde aşılıp "Transaction already closed" verebiliyor.
+    transactionOptions: { maxWait: 10_000, timeout: 30_000 },
     log: process.env.NODE_ENV === 'development' ? ['warn', 'error'] : ['error'],
   });
 }

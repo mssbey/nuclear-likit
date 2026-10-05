@@ -82,9 +82,40 @@ export function toErrorResponse(err: unknown): Response {
       { status: e.status },
     );
   }
-  const message = err instanceof Error ? err.message : 'Beklenmeyen hata';
   console.error('[admin api]', err);
+  const db = dbErrorResponse(err);
+  if (db) return db;
+  const message = err instanceof Error ? err.message : 'Beklenmeyen hata';
   return Response.json({ error: 'server', message }, { status: 500 });
+}
+
+/**
+ * Prisma/Postgres hatalarını anlaşılır Türkçe mesaja çevirir; ham
+ * "Invalid `prisma.x.findMany()` invocation…" metni panelde görünmesin.
+ */
+function dbErrorResponse(err: unknown): Response | null {
+  const e = err as { code?: unknown; message?: unknown };
+  const code = typeof e?.code === 'string' ? e.code : '';
+  const text = typeof e?.message === 'string' ? e.message : '';
+  const busy = (message: string) =>
+    Response.json({ error: 'busy', message }, { status: 503 });
+
+  if (/too many (database )?connections|connection slots|P2037|P1001|P1017|ECONNRESET|ETIMEDOUT|Connection terminated|upstream database/i.test(`${code} ${text}`)) {
+    return busy('Veritabanına şu an bağlanılamadı. Birkaç saniye sonra tekrar deneyin.');
+  }
+  if (code === 'P2028' || /Transaction (already closed|API error)|expired transaction/i.test(text)) {
+    return busy('İşlem zaman aşımına uğradı, kaydedilmedi. Tekrar deneyin.');
+  }
+  if (code === 'P2002') {
+    return Response.json({ error: 'conflict', message: 'Bu değer (ör. adres/slug, kod) zaten kullanılıyor.' }, { status: 409 });
+  }
+  if (code === 'P2025') {
+    return Response.json({ error: 'not-found', message: 'Kayıt bulunamadı; başka biri silmiş olabilir. Sayfayı yenileyin.' }, { status: 404 });
+  }
+  if (code === 'P2003') {
+    return Response.json({ error: 'conflict', message: 'Bu kayıt başka kayıtlarda kullanıldığı için işlem yapılamadı.' }, { status: 409 });
+  }
+  return null;
 }
 
 export async function readJson<T>(request: Request): Promise<T> {
