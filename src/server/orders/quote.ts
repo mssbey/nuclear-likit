@@ -8,7 +8,7 @@ import 'server-only';
 import { z } from 'zod';
 import { computeTotals, type OrderTotals } from './totals';
 import { cartLineSchema, priceCart, resolveCoupon, type PricedCart } from './pricing';
-import { quoteShipping, type ShippingQuote } from '../pricing/shipping-rates';
+import { estimateShipping, matchZone, quoteShipping, type ShippingQuote } from '../pricing/shipping-rates';
 import type { CouponOutcome } from '../pricing/coupons';
 import { evaluateDiscountRules, type AppliedDiscount } from '../pricing/discount-rules';
 import { loadActiveDiscountRules } from '../discounts/rules';
@@ -54,6 +54,25 @@ export interface CheckoutQuote {
   coupon: CouponOutcome | null;
   /** Kod gerektirmeden otomatik uygulanan indirim kuralları. */
   appliedDiscounts: AppliedDiscount[];
+  /** Ücretsiz kargoya kalan tutar, kuruş. Eşik yoksa, aşıldıysa veya kargo zaten ücretsizse null. */
+  freeShippingRemainingMinor: number | null;
+  /** Ücretsiz kargo eşiği (indirimler düşüldükten sonraki tutara uygulanır), kuruş; yoksa null. */
+  freeShippingThresholdMinor: number | null;
+  /** Eşik/kupon öncesi kargo ücreti, kuruş — sepet adres bilinmeden gösterir; yöntem yoksa null. */
+  shippingFeeMinor: number | null;
+  /**
+   * Sepetin gösterdiği kargo: seçili yöntem, yoksa tek tahmini yöntem. Ücret,
+   * eşik ve kalan tutar AYNI yöntemden gelir. Uygun yöntem yoksa null.
+   */
+  shippingEstimate: {
+    methodId: string;
+    name: string;
+    /** Eşik/kupon uygulanmış ücret, kuruş. */
+    priceMinor: number;
+    freeReason: ShippingQuote['freeReason'];
+    /** Adres bilinmeden kesinleşmez: diğer bölgelerde ücret/eşik farklı. */
+    varies: boolean;
+  } | null;
   paymentOptions: PaymentOption[];
   selectedPayment: PaymentMethodId | null;
   /** Kullanıcıya gösterilecek uyarılar (stok düşürüldü, kupon reddedildi …). */
@@ -92,29 +111,58 @@ export async function buildQuote(
       quantity: l.quantity,
     })),
   });
-  const ruleDiscountTotal = ruleOutcome.applied.reduce((s, d) => s + d.discountMinor, 0);
 
-  // Kupon + kural indirimi sonrası ara toplam, kargo eşikleri için.
-  const subtotal = cart.lines.reduce((s, l) => s + l.unitPriceMinor * l.quantity, 0);
-  const discount = (coupon?.ok ? coupon.discountMinor : 0) + ruleDiscountTotal;
+  // Kampanya + kupon satırlara uygulanmış ürün tutarı (≥ 0). Kupon payı,
+  // kampanyadan sonra satırda kalan tutarla sınırlanır; eşik ve kargo bununla hesaplanır.
+  const goods = computeTotals({
+    lines: cart.lines,
+    coupon,
+    shipping: null,
+    pricesIncludeTax: settings.pricesIncludeTax,
+    autoDiscountPerLineMinor: ruleOutcome.perLineMinor,
+  });
+  const netGoods = goods.itemsSubtotalMinor - goods.discountTotalMinor;
+  const effectiveCoupon: CouponOutcome | null =
+    coupon?.ok && !coupon.freeShipping
+      ? { ...coupon, discountMinor: goods.couponDiscountMinor, perLineMinor: goods.lines.map((l) => l.couponDiscountMinor) }
+      : coupon;
+  const couponFreeShipping = Boolean(coupon?.ok && coupon.freeShipping);
 
   const zones = await getShippingZones();
-  const shippingOptions = input.city
-    ? quoteShipping(zones, {
-        country: input.country || 'TR',
-        city: input.city,
-        cartTotalMinor: subtotal - discount,
-        desi: 0,
-        freeShippingCoupon: Boolean(coupon?.ok && coupon.freeShipping),
-      })
-    : [];
+  const shipCtx = {
+    country: input.country || 'TR',
+    cartTotalMinor: netGoods,
+    desi: cart.weightKg,
+    freeShippingCoupon: couponFreeShipping,
+  };
+  const shippingOptions = input.city ? quoteShipping(zones, { ...shipCtx, city: input.city }) : [];
+  if (input.city && cart.weightKg == null) {
+    const skipped = matchZone(zones, shipCtx.country, input.city)?.methods.filter(
+      (m) => m.isActive && m.type === 'desi' && m.tiers?.length,
+    );
+    if (skipped?.length) {
+      // Ürün ağırlığı girilmemiş: desi tarifesi uydurulmaz, yöntem sunulmaz.
+      console.warn(`[kargo] Ağırlığı eksik ürün nedeniyle sunulmayan desi yöntemi: ${skipped.map((m) => m.name).join(', ')}`);
+    }
+  }
 
   // Kapıda ödeme yöntemi yalnız "kapıda" tipli kargo seçildiyse kullanılabilir
   // ve tersi: kapıda kargo seçildiyse ödeme kapıda olmalı.
   const selectedShipping =
     shippingOptions.find((s) => s.methodId === input.shippingMethodId) ?? null;
+  if (couponFreeShipping && selectedShipping?.type === 'kapıda') {
+    problems.push('Ücretsiz kargo kuponu kapıda ödeme kargosunda geçerli değildir.');
+  }
 
-  const grandBeforeSurcharge = subtotal - discount + (selectedShipping?.priceMinor ?? 0);
+  // Sepet/özet için tek yöntem: seçili yöntem, yoksa tahmini yöntem.
+  const estimate = estimateShipping(zones, { ...shipCtx, city: input.city, methodId: selectedShipping?.methodId });
+  const threshold = estimate?.thresholdMinor ?? null;
+  const shippingFeeMinor = estimate?.baseFeeMinor ?? null;
+  const remaining = threshold != null ? threshold - netGoods : 0;
+  const freeShippingRemainingMinor =
+    estimate && estimate.quote.priceMinor > 0 && remaining > 0 ? remaining : null;
+
+  const grandBeforeSurcharge = netGoods + (selectedShipping?.priceMinor ?? 0);
   const pay = await getPaymentSettings();
   const codBlockedByMax =
     (settings.codMaxTotalMinor != null && grandBeforeSurcharge > settings.codMaxTotalMinor) ||
@@ -187,7 +235,7 @@ export async function buildQuote(
 
   const totals = computeTotals({
     lines: cart.lines,
-    coupon,
+    coupon: effectiveCoupon,
     shipping: selectedShipping,
     pricesIncludeTax: settings.pricesIncludeTax,
     shippingTaxRateBps: settings.shippingTaxRateBps,
@@ -200,8 +248,20 @@ export async function buildQuote(
     totals,
     shippingOptions,
     selectedShipping,
-    coupon,
+    coupon: effectiveCoupon,
     appliedDiscounts: ruleOutcome.applied,
+    freeShippingRemainingMinor,
+    freeShippingThresholdMinor: threshold,
+    shippingFeeMinor,
+    shippingEstimate: estimate
+      ? {
+          methodId: estimate.method.id,
+          name: estimate.method.name,
+          priceMinor: estimate.quote.priceMinor,
+          freeReason: estimate.quote.freeReason,
+          varies: estimate.varies,
+        }
+      : null,
     paymentOptions,
     selectedPayment,
     problems,

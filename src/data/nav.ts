@@ -1,4 +1,4 @@
-import type { Category, Collection } from '@/types';
+import type { Category } from '@/types';
 
 export interface NavLink {
   label: string;
@@ -47,58 +47,7 @@ export function flattenCategoryTree(
     ]);
 }
 
-// Kategoriler artık veritabanından geldiği için mega menü modül yüklenirken
-// değil, taksonomi elde edildiğinde kurulur (bkz. `useTaxonomy()`).
-export function buildMegaMenuColumns(categories: Category[]) {
-  // Menüde de ağaç sırası korunur; alt kategoriler `depth` ile girintilenir.
-  const tree = flattenCategoryTree(categories);
-  return [
-    {
-      heading: 'Tat Aileleri',
-      links: tree
-        .filter(({ category: c }) => !['diy-kitler', 'nbase'].includes(c.slug))
-        .map(({ category: c, depth }) => ({
-          label: c.name,
-          href: `/kategori/${c.slug}`,
-          hint: c.tagline,
-          depth,
-        })),
-    },
-    {
-      heading: 'Set & Baz',
-      links: [
-        ...tree
-          .filter(({ category: c }) => ['diy-kitler', 'nbase'].includes(c.slug))
-          .map(({ category: c, depth }) => ({
-            label: c.name,
-            href: `/kategori/${c.slug}`,
-            hint: c.tagline,
-            depth,
-          })),
-        { label: 'Aroma Rehberi', href: '/aroma-rehberi', hint: 'Oran, karışım ve saklama' },
-        { label: 'Aroma Bulucu', href: '/aroma-rehberi#bulucu', hint: 'Sana uygun profili keşfet' },
-      ],
-    },
-    {
-      heading: 'Keşfet',
-      links: [
-        { label: 'Tüm Ürünler', href: '/urunler', hint: `${categories.length} kategori` },
-        { label: 'Yeni Ürünler', href: '/yeni-gelenler', hint: 'Son eklenenler' },
-        { label: 'Fırsat Ürünleri', href: '/kampanyalar', hint: 'İndirimli seçkiler' },
-      ],
-    },
-  ];
-}
-
-export function buildMegaMenuCollections(collections: Collection[]) {
-  return collections.map((c) => ({
-    label: c.name,
-    href: `/koleksiyon/${c.slug}`,
-    subtitle: c.subtitle,
-    cover: c.cover,
-  }));
-}
-
+// Mega menü sütunları panelden düzenlenir: bkz. `src/lib/mega-menu.ts`.
 export const footerNav = [
   {
     heading: 'Kurumsal',

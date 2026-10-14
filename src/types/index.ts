@@ -72,6 +72,16 @@ export interface ProductImage {
   alt: string;
 }
 
+/** Ürüne uyan otomatik indirim kuralı, vitrin metniyle (sunucuda hazırlanır). */
+export interface ProductCampaign {
+  id: string;
+  /** "10 Al 9 Öde!" / "%10 İndirim" */
+  title: string;
+  detail: string;
+  startsAt: string | null;
+  endsAt: string | null;
+}
+
 export interface Product {
   id: string;
   slug: string;

@@ -26,6 +26,13 @@ export interface PricedCart {
   /** Kupon değerlendirmesi için satır bağlamı. */
   couponLines: { productId: string; categoryIds: string[]; lineTotalMinor: number }[];
   problems: string[];
+  /** Bulunamayan / yayından kalkmış varyantlar; istemci bunları sepetten siler. */
+  removedVariantIds: string[];
+  /**
+   * Kargo ölçüsü: satırların toplam ağırlığı (kg). Ağırlığı girilmemiş tek bir
+   * ürün bile varsa null — desi/ağırlık tarifesi tahmin edilmez.
+   */
+  weightKg: number | null;
 }
 
 export class CartProblemError extends Error {
@@ -75,11 +82,14 @@ export async function priceCart(input: CartLineInput[]): Promise<PricedCart> {
   const availability: PricedCart['availability'] = [];
   const couponLines: PricedCart['couponLines'] = [];
   const problems: string[] = [];
+  const removedVariantIds: string[] = [];
+  let weightGrams: number | null = 0;
 
   for (const [variantId, quantity] of merged) {
     const v = byId.get(variantId);
     if (!v || !v.isActive || v.product.status !== 'yayında') {
       problems.push('Sepetinizdeki bir ürün artık satışta değil ve çıkarıldı.');
+      removedVariantIds.push(variantId);
       continue;
     }
 
@@ -109,6 +119,7 @@ export async function priceCart(input: CartLineInput[]): Promise<PricedCart> {
       quantity: qty,
       taxRateBps: v.product.taxRate?.rateBps ?? settings.defaultTaxRateBps,
     });
+    weightGrams = weightGrams != null && v.weightGrams != null && v.weightGrams > 0 ? weightGrams + v.weightGrams * qty : null;
     couponLines.push({
       productId: v.productId,
       categoryIds: v.product.categories.map((c) => c.categoryId),
@@ -116,7 +127,14 @@ export async function priceCart(input: CartLineInput[]): Promise<PricedCart> {
     });
   }
 
-  return { lines, availability, couponLines, problems };
+  return {
+    lines,
+    availability,
+    couponLines,
+    problems,
+    removedVariantIds,
+    weightKg: lines.length && weightGrams != null ? weightGrams / 1000 : null,
+  };
 }
 
 /** Kupon kaydını okuyup saf kuralla değerlendirir. Kod yoksa null. */

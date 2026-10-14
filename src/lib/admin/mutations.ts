@@ -92,7 +92,7 @@ export function duplicateSlugCandidates(slug: string, count = 30): string[] {
 
 /**
  * WordPress'teki "Çoğalt" / "Kopyala" davranışı: kaynağın tüm alanları
- * kopyalanır, kopya HER ZAMAN taslak olarak açılır ve adı/slug'ı çakışmayacak
+ * kopyalanır, kopya doğrudan YAYINDA açılır ve adı/slug'ı çakışmayacak
  * şekilde numaralandırılır. Görseller, seçenekler ve varyantlar yeni kimlik
  * alır; varyant eşleşmeleri (comboKey/optionValues) yeni kimliklere göre
  * yeniden kurulur.
@@ -178,8 +178,8 @@ export function duplicateProduct(
     usageRate: fit(source.usageRate, 160),
     steepTime: fit(source.steepTime, 160),
     origin: fit(source.origin, 200),
-    // WordPress kopyayı her zaman taslak olarak açar.
-    status: 'taslak',
+    // Mağaza isteği: eklenen/kopyalanan ürün beklemeden vitrine çıkar.
+    status: 'yayında',
     seo: {
       title: source.seo.title ? withSuffix(source.seo.title, suffix, 70) : '',
       description: fit(source.seo.description, 180),

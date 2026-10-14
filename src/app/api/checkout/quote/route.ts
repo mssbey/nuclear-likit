@@ -34,11 +34,16 @@ export async function POST(request: Request) {
           : { ok: false, reason: quote.coupon.reason }
         : null,
       appliedDiscounts: quote.appliedDiscounts,
+      freeShippingRemainingMinor: quote.freeShippingRemainingMinor,
+      freeShippingThresholdMinor: quote.freeShippingThresholdMinor,
+      shippingFeeMinor: quote.shippingFeeMinor,
+      shippingEstimate: quote.shippingEstimate,
       paymentOptions: quote.paymentOptions,
       selectedPayment: quote.selectedPayment,
       problems: quote.problems,
       pricesIncludeTax: quote.pricesIncludeTax,
       availability: quote.cart.availability,
+      removedVariantIds: quote.cart.removedVariantIds,
     });
   } catch (err) {
     return storefrontError(err);

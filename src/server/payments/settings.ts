@@ -19,7 +19,7 @@ const modeSchema = z.enum(['test', 'live']).default('test');
 
 export const paymentSettingsSchema = z.object({
   /** Kart ödemelerinde kullanılacak sağlayıcı. DEMO_MODE=true iken her zaman mock. */
-  cardProvider: z.enum(['mock', 'iyzico', 'paytr', 'stripe']).default('mock'),
+  cardProvider: z.enum(['mock', 'iyzico', 'paytr', 'stripe', 'tosla']).default('mock'),
   /** Checkout'ta gösterim sırası ve aktiflik. */
   methods: z
     .array(z.object({ id: z.enum(['kart', 'havale', 'kapida']), enabled: z.boolean() }))
@@ -65,6 +65,15 @@ export const paymentSettingsSchema = z.object({
       webhookSecret: z.string().default(''),
     })
     .default({}),
+  tosla: z
+    .object({
+      enabled: z.boolean().default(false),
+      mode: modeSchema,
+      clientId: z.string().default(''),
+      apiUser: z.string().default(''),
+      apiPass: z.string().default(''),
+    })
+    .default({}),
   havale: z
     .object({
       enabled: z.boolean().default(true),
@@ -82,12 +91,14 @@ export const SECRET_FIELDS: Record<string, string[]> = {
   iyzico: ['apiKey', 'secretKey'],
   paytr: ['merchantKey', 'merchantSalt'],
   stripe: ['secretKey', 'webhookSecret'],
+  tosla: ['apiPass'],
 };
 
 const ENV_FALLBACK: Record<string, Record<string, string | undefined>> = {
   iyzico: { apiKey: process.env.IYZICO_API_KEY, secretKey: process.env.IYZICO_SECRET_KEY },
   paytr: { merchantId: process.env.PAYTR_MERCHANT_ID, merchantKey: process.env.PAYTR_MERCHANT_KEY, merchantSalt: process.env.PAYTR_MERCHANT_SALT },
   stripe: { secretKey: process.env.STRIPE_SECRET_KEY, webhookSecret: process.env.STRIPE_WEBHOOK_SECRET },
+  tosla: { clientId: process.env.TOSLA_CLIENT_ID, apiUser: process.env.TOSLA_API_USER, apiPass: process.env.TOSLA_API_PASS },
 };
 
 export const PAYMENT_SETTING_KEY = 'odeme';
@@ -101,13 +112,17 @@ export const PAYMENT_SETTING_KEY = 'odeme';
 function decryptSecrets(raw: PaymentSettings, useEnv = true): PaymentSettings {
   const out = structuredClone(raw) as PaymentSettings;
   for (const [provider, fields] of Object.entries(SECRET_FIELDS)) {
-    const section = out[provider as 'iyzico' | 'paytr' | 'stripe'] as unknown as Record<string, string>;
+    const section = out[provider as 'iyzico' | 'paytr' | 'stripe' | 'tosla'] as unknown as Record<string, string>;
     for (const f of fields) {
       const v = section[f];
       if (v && v.startsWith('v1.')) section[f] = tryOpen(v) ?? '';
       if (useEnv && !section[f]) section[f] = ENV_FALLBACK[provider]?.[f] ?? '';
     }
     if (useEnv && provider === 'paytr' && !section.merchantId) section.merchantId = ENV_FALLBACK.paytr.merchantId ?? '';
+    if (useEnv && provider === 'tosla') {
+      if (!section.clientId) section.clientId = ENV_FALLBACK.tosla.clientId ?? '';
+      if (!section.apiUser) section.apiUser = ENV_FALLBACK.tosla.apiUser ?? '';
+    }
   }
   return out;
 }
@@ -189,6 +204,8 @@ export function providerConfigured(s: PaymentSettings, id: ProviderId): boolean 
       return Boolean(s.paytr.merchantId && s.paytr.merchantKey && s.paytr.merchantSalt);
     case 'stripe':
       return Boolean(s.stripe.secretKey);
+    case 'tosla':
+      return Boolean(s.tosla.clientId && s.tosla.apiUser && s.tosla.apiPass);
     default:
       return true;
   }

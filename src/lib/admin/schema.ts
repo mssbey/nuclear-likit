@@ -150,7 +150,8 @@ export const adminCategorySchema = z.object({
   id: z.string().min(1),
   slug: slugSchema,
   name: z.string().trim().min(1, 'Kategori adı zorunlu').max(80),
-  tagline: z.string().trim().max(120),
+  // Slogan için karakter sınırı yok (veritabanında da metin alanı).
+  tagline: z.string().trim(),
   description: z.string().trim().max(600),
   cover: z.string().trim().max(300),
   icon: z.string().trim().max(300),

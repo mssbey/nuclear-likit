@@ -7,6 +7,7 @@ import { Prisma } from '@/generated/prisma/client';
 import { db } from '../db';
 import { currentStore } from '../store-context';
 import { ensureDefaultShipping } from './zones';
+import { invalidateShippingPolicy } from './policy';
 
 export class ShippingAdminError extends Error {
   constructor(
@@ -39,27 +40,44 @@ export const methodInputSchema = z.object({
 });
 export type MethodInput = z.infer<typeof methodInputSchema>;
 
+/**
+ * Eşik kuralı motorla aynı: kapıda ve ücretsiz tiplerde eşik yoktur, 0 "eşik
+ * yok" demektir. Kayıt da buna göre tutulur ki panel yanıltıcı değer göstermesin.
+ */
+function normalizeThreshold<T extends Partial<MethodInput>>(input: T, type: MethodInput['type'] | undefined): T {
+  if (input.freeOverMinor === undefined && type === undefined) return input;
+  const noThreshold = type === 'kapıda' || type === 'ücretsiz' || input.freeOverMinor === 0;
+  return noThreshold ? { ...input, freeOverMinor: null } : input;
+}
+
 export async function listZonesAdmin() {
   const store = currentStore();
   await ensureDefaultShipping(store);
   return db.shippingZone.findMany({ where: { store }, orderBy: { sortOrder: 'asc' }, include: { methods: { orderBy: { sortOrder: 'asc' } } } });
 }
 
+/** Yazma tamamlanınca vitrin kargo metinlerinin önbelleğini düşürür. */
+async function changed<T>(write: Promise<T>): Promise<T> {
+  const result = await write;
+  invalidateShippingPolicy();
+  return result;
+}
+
 export async function createZone(raw: unknown) {
   const input = zoneInputSchema.parse(raw);
   const store = currentStore();
   const max = await db.shippingZone.aggregate({ where: { store }, _max: { sortOrder: true } });
-  return db.shippingZone.create({
+  return changed(db.shippingZone.create({
     data: { ...input, store, countries: input.countries as Prisma.InputJsonValue, cities: input.cities as Prisma.InputJsonValue, sortOrder: (max._max.sortOrder ?? -1) + 1 },
     include: { methods: true },
-  });
+  }));
 }
 
 export async function updateZone(id: string, raw: unknown) {
   const input = zoneInputSchema.partial().parse(raw);
   const zone = await db.shippingZone.findFirst({ where: { id, store: currentStore() } });
   if (!zone) throw new ShippingAdminError('Bölge bulunamadı.', 404);
-  return db.shippingZone.update({
+  return changed(db.shippingZone.update({
     where: { id },
     data: {
       ...(input.name !== undefined ? { name: input.name } : {}),
@@ -67,50 +85,52 @@ export async function updateZone(id: string, raw: unknown) {
       ...(input.cities !== undefined ? { cities: input.cities as Prisma.InputJsonValue } : {}),
     },
     include: { methods: true },
-  });
+  }));
 }
 
 export async function deleteZone(id: string) {
   const zone = await db.shippingZone.findFirst({ where: { id, store: currentStore() } });
   if (!zone) throw new ShippingAdminError('Bölge bulunamadı.', 404);
-  await db.shippingZone.delete({ where: { id } }); // Prisma cascade: methods de silinir.
+  await changed(db.shippingZone.delete({ where: { id } })); // Prisma cascade: methods de silinir.
 }
 
 export async function reorderZones(orderedIds: string[]) {
-  await db.$transaction(orderedIds.map((id, i) => db.shippingZone.update({ where: { id, store: currentStore() }, data: { sortOrder: i } })));
+  await changed(db.$transaction(orderedIds.map((id, i) => db.shippingZone.update({ where: { id, store: currentStore() }, data: { sortOrder: i } }))));
 }
 
 export async function createMethod(zoneId: string, raw: unknown) {
   const zone = await db.shippingZone.findFirst({ where: { id: zoneId, store: currentStore() } });
   if (!zone) throw new ShippingAdminError('Bölge bulunamadı.', 404);
-  const input = methodInputSchema.parse(raw);
+  const parsed = methodInputSchema.parse(raw);
+  const input = normalizeThreshold(parsed, parsed.type);
   const max = await db.shippingMethod.aggregate({ where: { zoneId }, _max: { sortOrder: true } });
-  return db.shippingMethod.create({
+  return changed(db.shippingMethod.create({
     data: { ...input, zoneId, tiers: input.tiers === null ? undefined : (input.tiers as unknown as Prisma.InputJsonValue), sortOrder: (max._max.sortOrder ?? -1) + 1 },
-  });
+  }));
 }
 
 export async function updateMethod(id: string, raw: unknown) {
-  const input = methodInputSchema.partial().parse(raw);
+  const parsed = methodInputSchema.partial().parse(raw);
   const method = await db.shippingMethod.findFirst({ where: { id, zone: { store: currentStore() } } });
   if (!method) throw new ShippingAdminError('Yöntem bulunamadı.', 404);
-  return db.shippingMethod.update({
+  const input = normalizeThreshold(parsed, parsed.type ?? (method.type as MethodInput['type']));
+  return changed(db.shippingMethod.update({
     where: { id },
     data: {
       ...input,
       tiers: input.tiers === undefined ? undefined : input.tiers === null ? Prisma.JsonNull : (input.tiers as unknown as Prisma.InputJsonValue),
     },
-  });
+  }));
 }
 
 export async function deleteMethod(id: string) {
   const method = await db.shippingMethod.findFirst({ where: { id, zone: { store: currentStore() } } });
   if (!method) throw new ShippingAdminError('Yöntem bulunamadı.', 404);
-  await db.shippingMethod.delete({ where: { id } });
+  await changed(db.shippingMethod.delete({ where: { id } }));
 }
 
 export async function reorderMethods(zoneId: string, orderedIds: string[]) {
   const zone = await db.shippingZone.findFirst({ where: { id: zoneId, store: currentStore() } });
   if (!zone) throw new ShippingAdminError('Bölge bulunamadı.', 404);
-  await db.$transaction(orderedIds.map((id, i) => db.shippingMethod.update({ where: { id, zoneId }, data: { sortOrder: i } })));
+  await changed(db.$transaction(orderedIds.map((id, i) => db.shippingMethod.update({ where: { id, zoneId }, data: { sortOrder: i } }))));
 }

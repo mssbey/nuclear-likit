@@ -102,7 +102,7 @@ export const adminApi = {
       body: JSON.stringify(patch),
     }),
 
-  /** WordPress'teki "Çoğalt": taslak bir kopya üretir. */
+  /** WordPress'teki "Çoğalt": yayında bir kopya üretir. */
   duplicateProduct: (id: string) =>
     request<{ product: AdminProduct }>(
       `/api/admin/products/${encodeURIComponent(id)}/cogalt`,

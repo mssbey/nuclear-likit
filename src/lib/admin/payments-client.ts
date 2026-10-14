@@ -58,7 +58,7 @@ function qs(p: PaymentsListParams): string {
 }
 
 export interface PaymentSettingsView {
-  cardProvider: 'mock' | 'iyzico' | 'paytr' | 'stripe';
+  cardProvider: 'mock' | 'iyzico' | 'paytr' | 'stripe' | 'tosla';
   methods: { id: 'kart' | 'havale' | 'kapida'; enabled: boolean }[];
   limits: Record<'kart' | 'havale' | 'kapida', { minMinor: number | null; maxMinor: number | null }>;
   require3DS: boolean;
@@ -66,6 +66,7 @@ export interface PaymentSettingsView {
   iyzico: { enabled: boolean; mode: 'test' | 'live'; apiKey: string; apiKeySet?: boolean; secretKey: string; secretKeySet?: boolean };
   paytr: { enabled: boolean; mode: 'test' | 'live'; merchantId: string; merchantKey: string; merchantKeySet?: boolean; merchantSalt: string; merchantSaltSet?: boolean };
   stripe: { enabled: boolean; mode: 'test' | 'live'; publishableKey: string; secretKey: string; secretKeySet?: boolean; webhookSecret: string; webhookSecretSet?: boolean };
+  tosla: { enabled: boolean; mode: 'test' | 'live'; clientId: string; apiUser: string; apiPass: string; apiPassSet?: boolean };
   havale: { enabled: boolean; bankName: string; accountHolder: string; iban: string; instructions: string };
 }
 export interface PaymentSettingsResponse { settings: PaymentSettingsView; demoMode: boolean; encryptionConfigured: boolean }

@@ -1,8 +1,9 @@
 'use client';
 
-// Panel içerik sayfaları (SSS, kampanya bandı, üst menü) uçları için istemci sarmalayıcısı.
+// Panel içerik sayfaları (SSS, kampanya bandı, üst menü, mega menü) uçları için istemci sarmalayıcısı.
 
 import { ApiError, fetchWithRetry } from './client';
+import type { MegaMenuContent } from '@/lib/mega-menu';
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetchWithRetry(url, { ...init, headers: { 'content-type': 'application/json', ...(init?.headers ?? {}) } });
@@ -37,4 +38,7 @@ export const pagesApi = {
   saveCampaign: (body: CampaignContent) => request<CampaignContent>('/api/admin/pages/kampanya', { method: 'PUT', body: JSON.stringify(body) }),
   getNavMenu: () => request<NavMenuContent>('/api/admin/pages/menu', { cache: 'no-store' }),
   saveNavMenu: (body: NavMenuContent) => request<NavMenuContent>('/api/admin/pages/menu', { method: 'PUT', body: JSON.stringify(body) }),
+  /** Kayıt yoksa null — editör kategori ağacından varsayılanı kurar. */
+  getMegaMenu: () => request<MegaMenuContent | null>('/api/admin/pages/mega-menu', { cache: 'no-store' }),
+  saveMegaMenu: (body: MegaMenuContent) => request<MegaMenuContent>('/api/admin/pages/mega-menu', { method: 'PUT', body: JSON.stringify(body) }),
 };

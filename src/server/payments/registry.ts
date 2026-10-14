@@ -13,6 +13,7 @@ import { havaleProvider, kapidaProvider } from './adapters/manual';
 import { createIyzicoProvider } from './adapters/iyzico';
 import { createPaytrProvider } from './adapters/paytr';
 import { createStripeProvider } from './adapters/stripe';
+import { createToslaProvider } from './adapters/tosla';
 
 export class ProviderError extends Error {
   readonly status = 422 as const;
@@ -48,13 +49,21 @@ export function buildProvider(id: ProviderId, s: PaymentSettings): PaymentProvid
     case 'stripe':
       if (!providerConfigured(s, 'stripe')) throw new ProviderError('Stripe anahtarı tanımlı değil.');
       return createStripeProvider({ secretKey: s.stripe.secretKey, webhookSecret: s.stripe.webhookSecret });
+    case 'tosla':
+      if (!providerConfigured(s, 'tosla')) throw new ProviderError('Tosla API bilgileri tanımlı değil.');
+      return createToslaProvider({
+        clientId: s.tosla.clientId,
+        apiUser: s.tosla.apiUser,
+        apiPass: s.tosla.apiPass,
+        testMode: s.tosla.mode !== 'live',
+      });
   }
 }
 
 export async function getProvider(id: ProviderId): Promise<PaymentProvider> {
   const s = await getPaymentSettings();
   // Demo modda kart sağlayıcıları mock'a zorlanır — gerçek çağrı asla yapılmaz.
-  if (DEMO_MODE && (id === 'iyzico' || id === 'paytr' || id === 'stripe')) return mockProvider;
+  if (DEMO_MODE && (id === 'iyzico' || id === 'paytr' || id === 'stripe' || id === 'tosla')) return mockProvider;
   return buildProvider(id, s);
 }
 
@@ -70,5 +79,5 @@ export async function getCardProvider(): Promise<PaymentProvider> {
 
 /** Bu sağlayıcı webhook alabilir mi (havale/kapıda alamaz). */
 export function acceptsWebhooks(id: string): id is ProviderId {
-  return id === 'mock' || id === 'iyzico' || id === 'paytr' || id === 'stripe';
+  return id === 'mock' || id === 'iyzico' || id === 'paytr' || id === 'stripe' || id === 'tosla';
 }

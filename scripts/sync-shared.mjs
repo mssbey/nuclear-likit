@@ -29,6 +29,7 @@ export const SHARED = [
   'src/lib/validators',
   'src/lib/flavor-profiles.ts',
   'src/lib/legal-fill.ts',
+  'src/lib/mega-menu.ts',
   'src/lib/money.ts',
   'src/lib/new-badge.ts',
   'src/lib/payment-labels.ts',

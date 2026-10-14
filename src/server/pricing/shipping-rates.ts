@@ -2,11 +2,17 @@
 //
 // Bölge (il eşleşmesi) → yöntemler → her yöntem için ücret. Tipler:
 //   sabit        : priceMinor
-//   desi         : tiers [{ upTo: desi, priceMinor }] — ilk eşleşen kademe
+//   desi         : tiers [{ upTo: ölçü, priceMinor }] — ilk eşleşen kademe. Ölçü,
+//                  sepetteki ürünlerin toplam ağırlığıdır (kg); ürün ölçüleri
+//                  tutulmadığı için hacimsel desi hesaplanamaz. Sepette ağırlığı
+//                  girilmemiş ürün varsa ölçü bilinmez ve yöntem SUNULMAZ
+//                  (ilk kademeyi uydurmak yerine).
 //   tutara-göre  : tiers [{ upTo: sepetKuruş, priceMinor }]
 //   ücretsiz     : 0
-//   kapıda       : priceMinor (kapıda ödeme hizmet bedeli ayrı, ödeme katmanında)
-// Her tipte `freeOverMinor` varsa ve sepet o eşiği geçtiyse ücret 0'dır.
+//   kapıda       : priceMinor — ücretsiz kargo eşiği ve ücretsiz kargo kuponu
+//                  UYGULANMAZ (kapıda ödeme hizmet bedeli ayrı, ödeme katmanında).
+// Kapıda dışındaki tiplerde `freeOverMinor` (> 0) varsa ve indirim sonrası sepet
+// o eşiğe ulaştıysa (≥) ücret 0'dır. `freeOverMinor` 0 veya null → eşik yok.
 
 export type ShippingMethodType = 'sabit' | 'desi' | 'tutara-göre' | 'ücretsiz' | 'kapıda';
 
@@ -45,8 +51,8 @@ export interface ShippingContext {
   city: string;
   /** Sepet ara toplamı (indirim sonrası), kuruş. */
   cartTotalMinor: number;
-  /** Toplam desi (yoksa 0). */
-  desi: number;
+  /** Kargo ölçüsü (toplam ağırlık, kg). null → sepette ağırlığı bilinmeyen ürün var. */
+  desi: number | null;
   /** Kuponla ücretsiz kargo kazanıldı mı. */
   freeShippingCoupon: boolean;
 }
@@ -89,6 +95,18 @@ function tierPrice(tiers: RateTier[] | null, measure: number, fallback: number):
   return sorted[sorted.length - 1].priceMinor;
 }
 
+/** Yöntemin ücretsiz kargo eşiği; kapıda/ücretsiz tiplerde ve 0/boş değerde eşik yoktur. */
+export function methodThreshold(method: ShippingMethodRule): number | null {
+  if (method.type === 'kapıda' || method.type === 'ücretsiz') return null;
+  return method.freeOverMinor != null && method.freeOverMinor > 0 ? method.freeOverMinor : null;
+}
+
+/** Bu sepet için yöntem fiyatlanabilir mi (desi yöntemi ağırlık bilgisi ister). */
+export function isQuotable(method: ShippingMethodRule, ctx: Pick<ShippingContext, 'desi'>): boolean {
+  if (method.type !== 'desi' || !method.tiers?.length) return true;
+  return ctx.desi != null;
+}
+
 export function quoteMethod(method: ShippingMethodRule, ctx: ShippingContext): ShippingQuote {
   let priceMinor: number;
   let freeReason: ShippingQuote['freeReason'] = null;
@@ -99,7 +117,7 @@ export function quoteMethod(method: ShippingMethodRule, ctx: ShippingContext): S
       freeReason = 'yöntem';
       break;
     case 'desi':
-      priceMinor = tierPrice(method.tiers, ctx.desi, method.priceMinor);
+      priceMinor = tierPrice(method.tiers, ctx.desi ?? 0, method.priceMinor);
       break;
     case 'tutara-göre':
       priceMinor = tierPrice(method.tiers, ctx.cartTotalMinor, method.priceMinor);
@@ -110,7 +128,8 @@ export function quoteMethod(method: ShippingMethodRule, ctx: ShippingContext): S
       priceMinor = method.priceMinor;
   }
 
-  if (priceMinor > 0 && method.freeOverMinor != null && ctx.cartTotalMinor >= method.freeOverMinor) {
+  const threshold = methodThreshold(method);
+  if (priceMinor > 0 && threshold != null && ctx.cartTotalMinor >= threshold) {
     priceMinor = 0;
     freeReason = 'eşik';
   }
@@ -136,7 +155,90 @@ export function quoteShipping(zones: ShippingZoneRule[], ctx: ShippingContext): 
   const zone = matchZone(zones, ctx.country, ctx.city);
   if (!zone) return [];
   return [...zone.methods]
-    .filter((m) => m.isActive)
+    .filter((m) => m.isActive && isQuotable(m, ctx))
     .sort((a, b) => a.sortOrder - b.sortOrder)
     .map((m) => quoteMethod(m, ctx));
+}
+
+export interface ShippingEstimate {
+  /** Tahminin dayandığı yöntem — ücret ve eşik HEP bu yöntemden gelir. */
+  method: ShippingMethodRule;
+  /** Eşik/kupon uygulanmadan önceki ücret, kuruş. */
+  baseFeeMinor: number;
+  /** Bu yöntemin ücretsiz kargo eşiği, kuruş; yoksa null. */
+  thresholdMinor: number | null;
+  /** Eşik/kupon uygulanmış ücret. */
+  quote: ShippingQuote;
+  /**
+   * Adres bilinmiyorken ülkedeki diğer adaylar farklı ücret/eşik veriyor mu.
+   * true ise kesin ücret adrese göre değişebilir; arayüz bunu genel vaat gibi sunmaz.
+   */
+  varies: boolean;
+}
+
+/**
+ * Sepette (adres/yöntem seçilmeden) gösterilecek TEK tahmini yöntem.
+ *
+ *  - Yöntem seçildiyse o.
+ *  - İl biliniyorsa o ile uyan bölgenin ilk uygun yöntemi.
+ *  - İl yoksa: ülke geneli (il listesi boş) bölgelerin ilk uygun yöntemi; yoksa
+ *    ülkedeki ilk bölgeninki.
+ * Uygun = aktif, kapıda değil, bu sepet için fiyatlanabilir. Ücret ve eşik aynı
+ * yöntemden okunur ki "X ₺ kargo / Y ₺ üzeri ücretsiz" farklı yöntemlerden
+ * karışıp yanlış vaat üretmesin.
+ */
+export function estimateShipping(
+  zones: ShippingZoneRule[],
+  opts: {
+    country: string;
+    city?: string;
+    methodId?: string | null;
+    cartTotalMinor: number;
+    desi: number | null;
+    freeShippingCoupon: boolean;
+  },
+): ShippingEstimate | null {
+  const c = norm(opts.country || 'TR');
+  const sortedZones = [...zones]
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+    .filter((z) => z.countries.length === 0 || z.countries.map(norm).includes(c));
+  const pool = opts.city
+    ? [matchZone(zones, opts.country, opts.city)].filter((z): z is ShippingZoneRule => !!z)
+    : sortedZones.some((z) => z.cities.length === 0)
+      ? sortedZones.filter((z) => z.cities.length === 0)
+      : sortedZones;
+  const eligible = (z: ShippingZoneRule) =>
+    [...z.methods]
+      .sort((a, b) => a.sortOrder - b.sortOrder)
+      .filter((m) => m.isActive && m.type !== 'kapıda' && isQuotable(m, opts));
+  const candidates = pool.flatMap(eligible);
+  const method =
+    (opts.methodId ? pool.flatMap((z) => z.methods).find((m) => m.id === opts.methodId && m.isActive) : undefined) ??
+    candidates[0];
+  if (!method) return null;
+
+  const ctx: ShippingContext = {
+    country: opts.country,
+    city: opts.city ?? '',
+    cartTotalMinor: opts.cartTotalMinor,
+    desi: opts.desi,
+    freeShippingCoupon: opts.freeShippingCoupon,
+  };
+  const baseFeeMinor = quoteMethod({ ...method, freeOverMinor: null }, { ...ctx, freeShippingCoupon: false }).priceMinor;
+  const thresholdMinor = methodThreshold(method);
+
+  // Adres bilinmiyorsa: başka bir ildeki müşterinin tahmini (o bölgenin ilk
+  // uygun yöntemi) bu tahminden farklı mı? Il özel bölgeler dahil.
+  let varies = false;
+  if (!opts.city && !opts.methodId) {
+    const perZoneDefault = sortedZones
+      .map((z) => eligible(z)[0])
+      .filter((m): m is ShippingMethodRule => !!m);
+    varies = perZoneDefault.some((m) => {
+      const fee = quoteMethod({ ...m, freeOverMinor: null }, { ...ctx, freeShippingCoupon: false }).priceMinor;
+      return fee !== baseFeeMinor || methodThreshold(m) !== thresholdMinor;
+    });
+  }
+
+  return { method, baseFeeMinor, thresholdMinor, quote: quoteMethod(method, ctx), varies };
 }

@@ -27,6 +27,7 @@ import { currentStore } from '../store-context';
 import { notifyStorefronts } from '../storefront-sync';
 import { faqGroups as defaultFaqGroups, campaign as defaultCampaign } from '@/data/content';
 import { primaryNav as defaultPrimaryNav } from '@/data/nav';
+import { MEGA_MENU_MAX_COLUMNS, type MegaMenuContent } from '@/lib/mega-menu';
 
 export const faqContentSchema = z.object({
   groups: z
@@ -70,10 +71,47 @@ export const navMenuContentSchema = z.object({
 });
 export type NavMenuContent = z.output<typeof navMenuContentSchema>;
 
-const KEYS = { faq: 'sayfa-sss', campaign: 'sayfa-kampanya', navMenu: 'menu-ust' } as const;
+const hrefSchema = z
+  .string()
+  .trim()
+  .min(1, 'Bağlantı gerekli')
+  .max(200)
+  .refine((v) => v.startsWith('/') || /^https?:\/\//.test(v), 'Bağlantı / ile ya da http(s):// ile başlamalı');
+
+/** "Tüm Kategoriler" mega menüsü: sütunlar ve sıraları. */
+export const megaMenuContentSchema = z.object({
+  columns: z
+    .array(
+      z.object({
+        heading: z.string().trim().max(40).default(''),
+        items: z
+          .array(
+            z.discriminatedUnion('type', [
+              z.object({
+                type: z.literal('category'),
+                slug: z.string().trim().min(1, 'Kategori seçin').max(120),
+                showChildren: z.boolean().default(true),
+              }),
+              z.object({
+                type: z.literal('link'),
+                label: z.string().trim().min(1, 'Bağlantı adı gerekli').max(60),
+                href: hrefSchema,
+                hint: z.string().trim().max(80).default(''),
+              }),
+            ]),
+          )
+          .max(40, 'Bir sütunda en fazla 40 öğe'),
+      }),
+    )
+    .min(1, 'En az bir sütun gerekli')
+    .max(MEGA_MENU_MAX_COLUMNS, `En fazla ${MEGA_MENU_MAX_COLUMNS} sütun`),
+}) satisfies z.ZodType<MegaMenuContent, z.ZodTypeDef, unknown>;
+
+const KEYS = { faq: 'sayfa-sss', campaign: 'sayfa-kampanya', navMenu: 'menu-ust', megaMenu: 'menu-mega' } as const;
 const FAQ_TAG = 'sayfa-sss';
 const CAMPAIGN_TAG = 'sayfa-kampanya';
 const NAV_MENU_TAG = 'menu-ust';
+const MEGA_MENU_TAG = 'menu-mega';
 
 // Önbellek anahtarına `unstable_cache` argümanları da girer: mağaza argüman
 // olarak verildiği için iki mağazanın içeriği ayrı önbelleklenir. Statik
@@ -115,6 +153,27 @@ const loadNavMenu = unstable_cache(
 );
 const navMenuFor = cache(loadNavMenu);
 export const getNavMenuContent = (): Promise<NavMenuContent> => navMenuFor(currentStore());
+
+// Kayıt yoksa null: vitrin ve panel kategori ağacından varsayılan menüyü kurar
+// (bkz. `defaultMegaMenu`) — yeni kategori eklenince menü kendiliğinden güncel kalır.
+const loadMegaMenu = unstable_cache(
+  async (store: StoreId): Promise<MegaMenuContent | null> => {
+    const parsed = megaMenuContentSchema.safeParse(await readSettingValue(KEYS.megaMenu, store));
+    return parsed.success ? parsed.data : null;
+  },
+  ['menu-mega-icerik'],
+  { tags: [MEGA_MENU_TAG] },
+);
+const megaMenuFor = cache(loadMegaMenu);
+export const getMegaMenuContent = (): Promise<MegaMenuContent | null> => megaMenuFor(currentStore());
+
+export async function saveMegaMenuContent(raw: unknown, updatedByUserId: string): Promise<MegaMenuContent> {
+  const parsed = megaMenuContentSchema.parse(raw);
+  await writeSetting(KEYS.megaMenu, parsed, updatedByUserId);
+  revalidateTag(MEGA_MENU_TAG, 'max');
+  notifyStorefronts();
+  return parsed;
+}
 
 export async function saveFaqContent(raw: unknown, updatedByUserId: string): Promise<FaqContent> {
   const parsed = faqContentSchema.parse(raw);

@@ -25,6 +25,7 @@ export const PROVIDER_LABELS: Record<string, string> = {
   iyzico: 'iyzico',
   paytr: 'PayTR',
   stripe: 'Stripe',
+  tosla: 'Tosla',
   havale: 'Havale / EFT',
   kapida: 'Kapıda ödeme',
   kart: 'Kart',

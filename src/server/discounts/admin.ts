@@ -10,6 +10,7 @@ import type { AdminUser } from '../auth/current-user';
 import { jsonArray } from '../catalog/mapping';
 import type { DiscountRuleType } from '../pricing/discount-rules';
 import { discountRuleInputSchema, type DiscountRuleInput } from './schema';
+import { revalidateDiscountRules } from './campaigns';
 
 export { discountRuleInputSchema, type DiscountRuleInput };
 
@@ -137,6 +138,7 @@ export async function createDiscountRule(
 ): Promise<AdminDiscountRule> {
   const input = discountRuleInputSchema.parse(raw);
   const row = await db.discountRule.create({ data: { ...toData(input), store: currentStore() } });
+  revalidateDiscountRules();
   await auditChange({
     user,
     action: 'olustur',
@@ -162,6 +164,7 @@ export async function updateDiscountRule(
     where: { id },
     data: { ...toData(input), version: { increment: 1 } },
   });
+  revalidateDiscountRules();
   await auditChange({
     user,
     action: 'guncelle',
@@ -182,6 +185,7 @@ export async function deleteDiscountRule(
   const current = await db.discountRule.findFirst({ where: { id, store: currentStore() } });
   if (!current) throw new DiscountRuleAdminError('İndirim kuralı bulunamadı.', 404);
   await db.discountRule.delete({ where: { id } });
+  revalidateDiscountRules();
   await auditChange({
     user,
     action: 'sil',

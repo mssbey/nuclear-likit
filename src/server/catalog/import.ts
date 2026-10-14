@@ -53,7 +53,7 @@ const legacyProductSchema = z.object({
   collectionIds: z.array(z.string()).default([]),
   tags: z.array(z.string()).default([]),
   images: z.array(z.object({ id: z.string(), src: z.string(), alt: z.string() })).default([]),
-  status: z.string().default('taslak'),
+  status: z.string().default('yayında'),
   seo: z.object({ title: z.string().default(''), description: z.string().default('') }),
   flavorNotes: z.array(z.object({ label: z.string(), profile: z.string() })).default([]),
   flavorProfiles: z.array(z.string()).default([]),

@@ -8,8 +8,11 @@
 // (iptal edilebilir). Parola: crypto.scrypt (admin ile aynı modül).
 // Misafir müşteri kaydı (isGuest=true) sipariş verince oluşur; sonradan parola
 // belirleyerek hesaba dönüşür — sipariş geçmişi korunur.
+// Google/Apple girişi: bkz. ./oauth.ts. Her iki kayıt yolu da Üyelik Sözleşmesi
+// ve KVKK onayını zorunlu tutar; onaylanan sürümler `consents`e yazılır.
 
 import 'server-only';
+import { createHash, randomBytes } from 'node:crypto';
 import { cookies } from 'next/headers';
 import { cache } from 'react';
 import { SignJWT, jwtVerify } from 'jose';
@@ -19,6 +22,7 @@ import { currentStore } from '../store-context';
 import { hashPassword, passwordProblem, verifyPassword } from '../auth/password';
 import { checkLock, recordAttempt } from '../auth/rate-limit';
 import { queueEmail } from '../notifications/email';
+import { buildSignupConsents, type SignupChannel } from './signup-legal';
 
 export const CUSTOMER_COOKIE = 'na_musteri';
 const SESSION_SECONDS = 30 * 24 * 60 * 60; // 30 gün — vitrin oturumu uzun ömürlü
@@ -31,6 +35,9 @@ export interface CustomerUser {
   phone: string | null;
   marketingOptIn: boolean;
   sessionId: string;
+  /** Yalnız Google/Apple ile üye olanlarda false — parola sıfırlama ile belirlenir. */
+  hasPassword: boolean;
+  linkedProviders: ('google' | 'apple')[];
 }
 
 export class CustomerAuthError extends Error {
@@ -50,7 +57,7 @@ function secretKey(): Uint8Array {
   return new TextEncoder().encode(secret);
 }
 
-async function issueSession(customerId: string) {
+export async function issueSession(customerId: string) {
   const session = await db.customerSession.create({
     data: { customerId, expiresAt: new Date(Date.now() + SESSION_SECONDS * 1000) },
   });
@@ -110,6 +117,8 @@ export const getCurrentCustomer = cache(async (): Promise<CustomerUser | null> =
     phone: c.phone,
     marketingOptIn: c.marketingOptIn,
     sessionId: session.id,
+    hasPassword: Boolean(c.passwordHash),
+    linkedProviders: [...(c.googleSub ? (['google'] as const) : []), ...(c.appleSub ? (['apple'] as const) : [])],
   };
 });
 
@@ -130,62 +139,82 @@ export const registerSchema = z.object({
   /** KVKK açık rıza — ayrı ve isteğe bağlı. */
   marketingOptIn: z.boolean().default(false),
   /** Aydınlatma metnini okuduğunu onaylamak zorunlu. */
-  kvkkAccepted: z.literal(true, { errorMap: () => ({ message: 'KVKK aydınlatma metnini onaylamalısınız' }) }),
+  kvkkAccepted: z.literal(true, { errorMap: () => ({ message: "KVKK Aydınlatma Metni'ni onaylamalısınız" }) }),
+  /** Üyelik sözleşmesi (18 yaş beyanı dahil) kabulü zorunlu. */
+  termsAccepted: z.literal(true, { errorMap: () => ({ message: "Üyelik Sözleşmesi'ni kabul etmelisiniz" }) }),
 });
 
-export async function registerCustomer(raw: unknown): Promise<CustomerUser> {
-  const parsed = registerSchema.safeParse(raw);
-  if (!parsed.success) {
-    const issues: Record<string, string> = {};
-    for (const i of parsed.error.issues) issues[i.path.join('.')] ||= i.message;
-    throw new CustomerAuthError('Formda hatalı alanlar var.', 422, issues);
-  }
-  const input = parsed.data;
-  const problem = passwordProblem(input.password);
-  if (problem) throw new CustomerAuthError(problem, 422, { password: problem });
+function formIssues(error: z.ZodError): CustomerAuthError {
+  const issues: Record<string, string> = {};
+  for (const i of error.issues) issues[i.path.join('.')] ||= i.message;
+  return new CustomerAuthError('Formda hatalı alanlar var.', 422, issues);
+}
 
-  const email = input.email.toLocaleLowerCase('tr');
-  const existing = await db.customer.findUnique({ where: { store_email: { store: currentStore(), email } } });
+/** Kayıtlı hesabın hangi yolla giriş yaptığını söyleyen mesaj. */
+function existingAccountMessage(c: { passwordHash: string | null; googleSub: string | null; appleSub: string | null }): string {
+  if (!c.passwordHash && c.googleSub) return 'Bu e-posta Google hesabıyla kayıtlı. "Google ile devam et" ile giriş yapın.';
+  if (!c.passwordHash && c.appleSub) return 'Bu e-posta Apple hesabıyla kayıtlı. "Apple ile devam et" ile giriş yapın.';
+  return 'Bu e-posta ile zaten bir hesap var. Giriş yapın veya parolanızı sıfırlayın.';
+}
 
+interface NewMember {
+  email: string;
+  firstName: string;
+  lastName: string;
+  phone?: string;
+  marketingOptIn: boolean;
+  channel: SignupChannel;
+  ip: string;
+  passwordHash?: string;
+  googleSub?: string;
+  appleSub?: string;
+  emailVerified?: boolean;
+}
+
+/** Yeni üyelik açar veya misafir kaydını üyeliğe dönüştürür; oturum açar. */
+async function createMember(m: NewMember): Promise<CustomerUser> {
+  const store = currentStore();
+  const existing = await db.customer.findUnique({ where: { store_email: { store, email: m.email } } });
   if (existing && !existing.isGuest) {
-    throw new CustomerAuthError('Bu e-posta ile zaten bir hesap var. Giriş yapın.', 409, {
-      email: 'Bu e-posta kayıtlı',
-    });
+    throw new CustomerAuthError(existingAccountMessage(existing), 409, { email: 'Bu e-posta kayıtlı' });
   }
 
-  const passwordHash = await hashPassword(input.password);
   const now = new Date();
+  const common = {
+    isGuest: false,
+    firstName: m.firstName,
+    lastName: m.lastName,
+    consents: await buildSignupConsents(m.channel, m.marketingOptIn, m.ip),
+    ...(m.passwordHash ? { passwordHash: m.passwordHash } : {}),
+    ...(m.googleSub ? { googleSub: m.googleSub } : {}),
+    ...(m.appleSub ? { appleSub: m.appleSub } : {}),
+    ...(m.emailVerified ? { emailVerifiedAt: now } : {}),
+  };
   // Misafir kaydı varsa hesaba dönüştür — sipariş geçmişi korunur.
   const customer = existing
     ? await db.customer.update({
         where: { id: existing.id },
         data: {
-          passwordHash,
-          isGuest: false,
-          firstName: input.firstName,
-          lastName: input.lastName,
-          phone: input.phone || existing.phone,
-          ...(input.marketingOptIn ? { marketingOptIn: true, marketingOptInAt: now } : {}),
+          ...common,
+          phone: m.phone || existing.phone,
+          ...(m.marketingOptIn ? { marketingOptIn: true, marketingOptInAt: now } : {}),
         },
       })
     : await db.customer.create({
         data: {
-          store: currentStore(),
-          email,
-          passwordHash,
-          isGuest: false,
-          firstName: input.firstName,
-          lastName: input.lastName,
-          phone: input.phone || null,
+          ...common,
+          store,
+          email: m.email,
+          phone: m.phone || null,
           tags: [],
-          marketingOptIn: input.marketingOptIn,
-          marketingOptInAt: input.marketingOptIn ? now : null,
+          marketingOptIn: m.marketingOptIn,
+          marketingOptInAt: m.marketingOptIn ? now : null,
         },
       });
 
   await issueSession(customer.id);
   await queueEmail({
-    to: email,
+    to: m.email,
     template: 'hesap-olusturuldu',
     vars: {
       musteriAdi: `${customer.firstName} ${customer.lastName}`.trim(),
@@ -194,6 +223,54 @@ export async function registerCustomer(raw: unknown): Promise<CustomerUser> {
   });
 
   return (await getCurrentCustomer())!;
+}
+
+export async function registerCustomer(raw: unknown, ip: string): Promise<CustomerUser> {
+  const parsed = registerSchema.safeParse(raw);
+  if (!parsed.success) throw formIssues(parsed.error);
+  const input = parsed.data;
+  const problem = passwordProblem(input.password);
+  if (problem) throw new CustomerAuthError(problem, 422, { password: problem });
+
+  return createMember({
+    email: input.email.toLocaleLowerCase('tr'),
+    firstName: input.firstName,
+    lastName: input.lastName,
+    phone: input.phone,
+    marketingOptIn: input.marketingOptIn,
+    channel: 'eposta',
+    ip,
+    passwordHash: await hashPassword(input.password),
+  });
+}
+
+/** Google/Apple ile gelen kimlik: sözleşmeler onaylanınca üyelik açılır. */
+export const socialSignupSchema = registerSchema.pick({
+  firstName: true,
+  lastName: true,
+  marketingOptIn: true,
+  kvkkAccepted: true,
+  termsAccepted: true,
+});
+
+export async function completeSocialSignup(
+  identity: { p: 'google' | 'apple'; sub: string; email: string },
+  raw: unknown,
+  ip: string,
+): Promise<CustomerUser> {
+  const parsed = socialSignupSchema.safeParse(raw);
+  if (!parsed.success) throw formIssues(parsed.error);
+  const input = parsed.data;
+  return createMember({
+    email: identity.email,
+    firstName: input.firstName,
+    lastName: input.lastName,
+    marketingOptIn: input.marketingOptIn,
+    channel: identity.p,
+    ip,
+    emailVerified: true,
+    ...(identity.p === 'google' ? { googleSub: identity.sub } : { appleSub: identity.sub }),
+  });
 }
 
 // ------------------------------------------------------------------ giriş ---
@@ -219,6 +296,15 @@ export async function loginCustomer(
 
   const customer = await db.customer.findUnique({ where: { store_email: { store: currentStore(), email } } });
   const ok = await verifyPassword(password, customer?.passwordHash ?? DUMMY_HASH);
+
+  // Parolası olmayan sosyal hesap: doğru giriş yolunu göster (kayıt formu da
+  // aynı bilgiyi verir, yeni bir sızıntı değildir).
+  if (customer && !customer.isGuest && !customer.passwordHash && !customer.anonymizedAt && (customer.googleSub || customer.appleSub)) {
+    throw new CustomerAuthError(
+      `${existingAccountMessage(customer)} Parolayla girmek isterseniz "Parolamı unuttum" ile parola belirleyebilirsiniz.`,
+      401,
+    );
+  }
 
   if (!customer || !customer.passwordHash || !ok || customer.anonymizedAt) {
     await recordAttempt(`musteri:${email}`, ip, false);
@@ -263,4 +349,81 @@ export async function changeCustomerPassword(
     where: { customerId, revokedAt: null, id: { not: keepSessionId } },
     data: { revokedAt: new Date() },
   });
+}
+
+// -------------------------------------------------------- parola sıfırlama ---
+
+const RESET_MINUTES = 60;
+const RESET_PER_HOUR = 3;
+const tokenHashOf = (token: string) => createHash('sha256').update(token).digest('hex');
+
+/**
+ * Sıfırlama bağlantısı gönderir. Hesabın var olup olmadığı yanıttan anlaşılmaz:
+ * çağıran her durumda aynı mesajı gösterir. Yalnız sosyal girişli hesap da bu
+ * yolla parola belirleyebilir; misafir kaydına bağlantı gönderilmez (önce kayıt).
+ */
+export async function requestPasswordReset(rawEmail: string): Promise<void> {
+  const email = z.string().trim().email().max(200).safeParse(rawEmail);
+  if (!email.success) throw new CustomerAuthError('Geçerli bir e-posta girin.', 422, { email: 'Geçerli bir e-posta girin' });
+
+  const customer = await db.customer.findUnique({
+    where: { store_email: { store: currentStore(), email: email.data.toLocaleLowerCase('tr') } },
+  });
+  if (!customer || customer.isGuest || customer.anonymizedAt) return;
+
+  const recent = await db.passwordResetToken.count({
+    where: { customerId: customer.id, createdAt: { gte: new Date(Date.now() - 60 * 60 * 1000) } },
+  });
+  if (recent >= RESET_PER_HOUR) return;
+
+  const token = randomBytes(32).toString('base64url');
+  await db.passwordResetToken.create({
+    data: {
+      tokenHash: tokenHashOf(token),
+      customerId: customer.id,
+      expiresAt: new Date(Date.now() + RESET_MINUTES * 60 * 1000),
+    },
+  });
+  await queueEmail({
+    to: customer.email,
+    template: 'parola-sifirla',
+    vars: { sifirlamaLinki: `{{siteUrl}}/sifre-sifirla?t=${token}` },
+  });
+}
+
+async function findResetToken(token: string) {
+  if (!token || token.length > 100) return null;
+  const row = await db.passwordResetToken.findUnique({
+    where: { tokenHash: tokenHashOf(token) },
+    include: { customer: true },
+  });
+  if (!row?.customer || row.usedAt || row.expiresAt.getTime() < Date.now()) return null;
+  if (row.customer.store !== currentStore() || row.customer.anonymizedAt) return null;
+  return row as typeof row & { customer: NonNullable<typeof row.customer> };
+}
+
+/** Sıfırlama sayfası açılırken: bağlantı hâlâ geçerli mi? */
+export async function isResetTokenValid(token: string): Promise<boolean> {
+  return Boolean(await findResetToken(token));
+}
+
+/** Yeni parolayı yazar, tüm oturumları kapatır ve bu cihazda oturum açar. */
+export async function resetPasswordWithToken(token: string, nextPassword: string): Promise<CustomerUser> {
+  const row = await findResetToken(token);
+  if (!row) throw new CustomerAuthError('Bağlantının süresi dolmuş veya daha önce kullanılmış. Yeni bağlantı isteyin.', 400);
+  const problem = passwordProblem(nextPassword);
+  if (problem) throw new CustomerAuthError(problem, 422, { password: problem });
+
+  const now = new Date();
+  await db.$transaction([
+    db.customer.update({
+      where: { id: row.customer.id },
+      // Bağlantı e-postaya gittiği için adres de doğrulanmış olur.
+      data: { passwordHash: await hashPassword(nextPassword), emailVerifiedAt: row.customer.emailVerifiedAt ?? now },
+    }),
+    db.passwordResetToken.updateMany({ where: { customerId: row.customer.id, usedAt: null }, data: { usedAt: now } }),
+    db.customerSession.updateMany({ where: { customerId: row.customer.id, revokedAt: null }, data: { revokedAt: now } }),
+  ]);
+  await issueSession(row.customer.id);
+  return (await getCurrentCustomer())!;
 }

@@ -1,9 +1,9 @@
 // Yasal metinler — SÜRÜMLÜ.
 //
-// Mesafeli satış sözleşmesi, ön bilgilendirme formu ve KVKK aydınlatma metni
-// `LegalDocument` tablosunda sürüm numarasıyla tutulur. Sipariş, kabul edilen
-// SÜRÜMÜ `consents` alanına yazar; metin sonradan değişse bile eski sipariş
-// kabul ettiği metni gösterebilir.
+// Mesafeli satış sözleşmesi, ön bilgilendirme formu, KVKK aydınlatma metni ve
+// üyelik sözleşmesi `LegalDocument` tablosunda sürüm numarasıyla tutulur.
+// Sipariş ve üyelik, kabul edilen SÜRÜMÜ `consents` alanına yazar; metin
+// sonradan değişse bile eski kayıt kabul ettiği metni gösterebilir.
 //
 // Buradaki varsayılan metinler ŞABLONDUR. Hukuki geçerliliği mağaza sahibinin
 // sorumluluğundadır; panelden (F7) güncellenerek yeni sürüm yayınlanır.
@@ -18,6 +18,7 @@ export const LEGAL_KINDS = [
   'mesafeli-satis',
   'on-bilgilendirme',
   'kvkk-aydinlatma',
+  'uyelik-sozlesmesi',
 ] as const;
 export type LegalKind = (typeof LEGAL_KINDS)[number];
 
@@ -25,6 +26,7 @@ export const legalKindLabels: Record<LegalKind, string> = {
   'mesafeli-satis': 'Mesafeli Satış Sözleşmesi',
   'on-bilgilendirme': 'Ön Bilgilendirme Formu',
   'kvkk-aydinlatma': 'KVKK Aydınlatma Metni',
+  'uyelik-sozlesmesi': 'Üyelik Sözleşmesi',
 };
 
 /**
@@ -112,6 +114,50 @@ Aktarım: kargo firmaları (teslimat için), ödeme kuruluşları (ödeme için)
 Saklama: yasal saklama süreleri boyunca (fatura kayıtları 10 yıl).
 
 Haklarınız (KVKK m.11): verilerinize erişme, düzeltme, silme/anonimleştirme talep etme, işlemeye itiraz. Talepleriniz için {{saticiEposta}} adresine yazabilir veya hesap sayfanızdaki "verilerimi dışa aktar / hesabımı sil" seçeneklerini kullanabilirsiniz.`,
+  },
+  'uyelik-sozlesmesi': {
+    title: 'Üyelik Sözleşmesi',
+    body: `ÜYELİK SÖZLEŞMESİ
+
+MADDE 1 — TARAFLAR
+İşbu sözleşme, {{saticiUnvan}} ("SATICI") ile internet sitesine üye olan kişi ("ÜYE") arasında, ÜYE'nin üyelik formunu elektronik ortamda onaylamasıyla kurulmuştur.
+SATICI adresi: {{saticiAdres}}
+E-posta: {{saticiEposta}} · Telefon: {{saticiTelefon}}
+
+MADDE 2 — KONU
+Sözleşmenin konusu, ÜYE'nin sitedeki üyelik hizmetlerinden (sipariş verme, sipariş ve iade takibi, adres defteri, kampanyalardan yararlanma) yararlanma koşullarının ve tarafların hak ve yükümlülüklerinin belirlenmesidir.
+
+MADDE 3 — ÜYELİK KOŞULLARI
+3.1 Üyelik, 18 yaşını doldurmuş ve fiil ehliyetine sahip gerçek kişilere açıktır. ÜYE, üyelik formunu onaylayarak 18 yaşından büyük olduğunu beyan eder.
+3.2 ÜYE, üyelik sırasında verdiği bilgilerin doğru ve güncel olduğunu kabul eder. Yanlış bilgiden doğan sorumluluk ÜYE'ye aittir.
+3.3 Üyelik e-posta ve parola ile ya da Google / Apple hesabıyla oluşturulabilir. Sosyal hesapla girişte SATICI'ya yalnızca ad, soyad ve e-posta adresi aktarılır; sosyal hesabın parolasına erişilmez.
+
+MADDE 4 — ÜYENİN YÜKÜMLÜLÜKLERİ
+4.1 ÜYE, hesap bilgilerinin ve parolasının gizliliğinden sorumludur; hesabının izinsiz kullanıldığını fark ederse derhal SATICI'ya bildirir.
+4.2 ÜYE, siteyi hukuka, genel ahlaka ve işbu sözleşmeye aykırı amaçlarla kullanamaz; sitenin işleyişini bozacak yazılım veya yöntem kullanamaz.
+4.3 ÜYE, sitedeki içeriklerin (görsel, metin, marka, logo) SATICI'ya veya lisans verenlerine ait olduğunu, izinsiz kopyalanamayacağını kabul eder.
+
+MADDE 5 — SATICININ HAK VE YÜKÜMLÜLÜKLERİ
+5.1 SATICI, ÜYE'nin kişisel verilerini KVKK Aydınlatma Metni'nde belirtilen amaçlarla ve 6698 sayılı Kanun'a uygun olarak işler.
+5.2 SATICI, sözleşmeye aykırı kullanım tespit ettiğinde üyeliği askıya alabilir veya sona erdirebilir.
+5.3 SATICI, site içeriğinde, fiyatlarda ve kampanyalarda önceden bildirimde bulunmaksızın değişiklik yapabilir. Verilmiş siparişler, sipariş anındaki koşullara tabidir.
+
+MADDE 6 — SATIN ALMA
+Site üzerinden verilen her sipariş ayrıca Ön Bilgilendirme Formu ve Mesafeli Satış Sözleşmesi'ne tabidir; bu belgeler sipariş sırasında ayrıca onaylanır.
+
+MADDE 7 — TİCARİ ELEKTRONİK İLETİ
+Kampanya ve tanıtım içerikli e-posta/SMS, yalnızca ÜYE'nin ayrıca verdiği onay ile gönderilir. ÜYE bu onayı dilediği zaman hesap sayfasından veya iletideki bağlantıdan ücretsiz olarak geri alabilir.
+
+MADDE 8 — SÜRE VE FESİH
+Sözleşme süresizdir. ÜYE, hesap sayfasından veya {{saticiEposta}} adresine yazarak üyeliğini dilediği zaman sonlandırabilir. Yasal saklama yükümlülüğü bulunan sipariş ve fatura kayıtları fesihten etkilenmez.
+
+MADDE 9 — DEĞİŞİKLİKLER
+SATICI bu sözleşmeyi güncelleyebilir; güncel sürüm sitede yayımlandığı tarihte yürürlüğe girer. Önemli değişiklikler ÜYE'ye e-posta ile bildirilir.
+
+MADDE 10 — UYUŞMAZLIK
+Uyuşmazlıklarda Türkiye Cumhuriyeti hukuku uygulanır; tüketici işlemlerinde Tüketici Hakem Heyetleri ve Tüketici Mahkemeleri yetkilidir. SATICI'nın elektronik kayıtları HMK m.193 uyarınca delil teşkil eder.
+
+İletişim: {{saticiEposta}} · {{saticiTelefon}}`,
   },
 };
 

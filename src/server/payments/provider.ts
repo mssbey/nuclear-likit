@@ -1,12 +1,12 @@
 // Ödeme sağlayıcı arayüzü.
 //
-// Her sağlayıcı (iyzico, PayTR, Stripe, havale, kapıda, mock) bu sözleşmeyi
+// Her sağlayıcı (iyzico, PayTR, Stripe, Tosla, havale, kapıda, mock) bu sözleşmeyi
 // uygular; checkout, webhook ve iade akışları sağlayıcıyı bilmez. Kart verisi
 // ASLA sunucuya gelmez — sağlayıcının hosted/3DS sayfasına yönlendirilir.
 //
 // Saf modül: yalnız tipler ve küçük yardımcılar. Adaptörler `adapters/` altında.
 
-export const PROVIDER_IDS = ['mock', 'iyzico', 'paytr', 'stripe', 'havale', 'kapida'] as const;
+export const PROVIDER_IDS = ['mock', 'iyzico', 'paytr', 'stripe', 'tosla', 'havale', 'kapida'] as const;
 export type ProviderId = (typeof PROVIDER_IDS)[number];
 
 export const providerLabels: Record<ProviderId, string> = {
@@ -14,6 +14,7 @@ export const providerLabels: Record<ProviderId, string> = {
   iyzico: 'iyzico',
   paytr: 'PayTR',
   stripe: 'Stripe',
+  tosla: 'Tosla',
   havale: 'Havale / EFT',
   kapida: 'Kapıda ödeme',
 };

@@ -91,7 +91,7 @@ export function LoginForm({ next }: { next?: string }) {
 
 export function RegisterForm({ next, initialEmail }: { next?: string; initialEmail?: string }) {
   const router = useRouter();
-  const [form, setForm] = useState({ firstName: '', lastName: '', email: initialEmail ?? '', phone: '', password: '', kvkkAccepted: false, marketingOptIn: false });
+  const [form, setForm] = useState({ firstName: '', lastName: '', email: initialEmail ?? '', phone: '', password: '', kvkkAccepted: false, termsAccepted: false, marketingOptIn: false });
   const [issues, setIssues] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -111,6 +111,7 @@ export function RegisterForm({ next, initialEmail }: { next?: string; initialEma
         phone: form.phone || undefined,
         marketingOptIn: form.marketingOptIn,
         kvkkAccepted: form.kvkkAccepted,
+        termsAccepted: form.termsAccepted,
       });
       router.replace(safeNext(next));
       router.refresh();
@@ -165,6 +166,16 @@ export function RegisterForm({ next, initialEmail }: { next?: string; initialEma
           </Link>{' '}
           okudum. <span className="text-danger">*</span>
           {issues.kvkkAccepted && <span className="field-error block">{issues.kvkkAccepted}</span>}
+        </span>
+      </label>
+      <label className="flex cursor-pointer items-start gap-3 text-sm">
+        <input type="checkbox" className="mt-0.5 h-4 w-4 accent-[#B6FF3B]" checked={form.termsAccepted} onChange={(e) => set('termsAccepted', e.target.checked)} />
+        <span>
+          <Link href="/yasal/uyelik-sozlesmesi" className="link" target="_blank">
+            Üyelik Sözleşmesini
+          </Link>{' '}
+          okudum ve kabul ediyorum. <span className="text-danger">*</span>
+          {issues.termsAccepted && <span className="field-error block">{issues.termsAccepted}</span>}
         </span>
       </label>
       <label className="flex cursor-pointer items-start gap-3 text-sm text-muted">

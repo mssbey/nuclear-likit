@@ -111,8 +111,8 @@ function toMethodRule(row: {
   };
 }
 
-const shippingZonesFor = cache(async (store: StoreId): Promise<ShippingZoneRule[]> => {
-  await ensureDefaultShipping(store);
+/** Mağazanın bölge + yöntemleri (tohumlamadan, salt okuma). Başka mağazanın kaydı gelmez. */
+export async function readShippingZones(store: StoreId): Promise<ShippingZoneRule[]> {
   const zones = await db.shippingZone.findMany({
     where: { store },
     orderBy: { sortOrder: 'asc' },
@@ -126,6 +126,11 @@ const shippingZonesFor = cache(async (store: StoreId): Promise<ShippingZoneRule[
     sortOrder: z.sortOrder,
     methods: z.methods.map(toMethodRule),
   }));
+}
+
+const shippingZonesFor = cache(async (store: StoreId): Promise<ShippingZoneRule[]> => {
+  await ensureDefaultShipping(store);
+  return readShippingZones(store);
 });
 
 /** Geçerli mağazanın bölgeleri (istek başına teklenir). */

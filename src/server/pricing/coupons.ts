@@ -90,16 +90,20 @@ export function evaluateCoupon(rule: CouponRule, ctx: CouponContext): CouponOutc
     return { ok: false, reason: 'Bu kupon yalnızca ilk siparişte geçerlidir.' };
   }
 
-  const cartTotal = ctx.lines.reduce((s, l) => s + l.lineTotalMinor, 0);
-  if (rule.minCartTotalMinor != null && cartTotal < rule.minCartTotalMinor) {
-    return {
-      ok: false,
-      reason: `Bu kupon için sepet tutarı en az ${(rule.minCartTotalMinor / 100).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })} olmalı.`,
-    };
-  }
-
+  // Alt limit ve indirim, kuponun geçerli olduğu ürünlerin indirim ÖNCESİ
+  // tutarına göre: hariç tutulan ürünler alt limiti dolduramaz.
   const eligible = ctx.lines.map((l) => (isEligibleLine(rule, l) ? l.lineTotalMinor : 0));
   const eligibleTotal = eligible.reduce((s, n) => s + n, 0);
+
+  if (eligibleTotal <= 0) {
+    return { ok: false, reason: 'Sepetinizde bu kuponun geçerli olduğu ürün yok.' };
+  }
+  if (rule.minCartTotalMinor != null && eligibleTotal < rule.minCartTotalMinor) {
+    return {
+      ok: false,
+      reason: `Bu kupon için geçerli ürünlerin tutarı en az ${(rule.minCartTotalMinor / 100).toLocaleString('tr-TR', { style: 'currency', currency: 'TRY' })} olmalı.`,
+    };
+  }
 
   if (rule.type === 'ücretsiz-kargo') {
     return {
@@ -110,10 +114,6 @@ export function evaluateCoupon(rule: CouponRule, ctx: CouponContext): CouponOutc
       perLineMinor: ctx.lines.map(() => 0),
       freeShipping: true,
     };
-  }
-
-  if (eligibleTotal <= 0) {
-    return { ok: false, reason: 'Sepetinizde bu kuponun geçerli olduğu ürün yok.' };
   }
 
   let discount =

@@ -280,8 +280,17 @@ model Customer {
   phone        String?
   firstName    String  @default("")
   lastName     String  @default("")
-  passwordHash String? // misafir müşteride null
+  passwordHash String? // misafir ve yalnız sosyal girişli müşteride null
   isGuest      Boolean @default(true)
+
+  /// Sosyal giriş: sağlayıcının kalıcı kullanıcı kimliği (OIDC `sub`).
+  googleSub String?
+  appleSub  String?
+  /// Sağlayıcı e-postayı doğruladıysa veya parola sıfırlama bağlantısı kullanıldıysa dolar.
+  emailVerifiedAt DateTime?
+  /// Üyelikte kabul edilen yasal metin sürümleri:
+  /// { uyelik: { v, at }, kvkk: { v, at }, etk?: { at }, kanal, ip }
+  consents Json?
 
   /// KVKK: pazarlama izni ayrı ve açık rıza; satın alma şartı değildir.
   marketingOptIn   Boolean   @default(false)
@@ -309,6 +318,8 @@ model Customer {
   @@index([createdAt])
   @@index([lastOrderAt])
   @@unique([store, email])
+  @@unique([store, googleSub])
+  @@unique([store, appleSub])
   @@index([store])
 }
 
