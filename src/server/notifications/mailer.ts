@@ -56,10 +56,10 @@ async function sendViaSmtp(
 }
 
 /** Gerçek gönderim. Yapılandırma yoksa `{ok:false}` döner, ASLA fırlatmaz. */
-export async function sendMailNow(to: string, subject: string, body: string): Promise<SendResult> {
+export async function sendMailNow(to: string, subject: string, body: string, htmlBody?: string): Promise<SendResult> {
   const s = await getEmailSettings();
   const from = s.fromName ? `${s.fromName} <${s.fromEmail}>` : s.fromEmail;
-  const html = textToHtml(body);
+  const html = htmlBody ?? textToHtml(body);
 
   if (!s.fromEmail) return { ok: false, error: 'Gönderen e-posta adresi ayarlanmamış.' };
 

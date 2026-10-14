@@ -19,10 +19,16 @@ export interface StoreMeta {
   label: string;
   /** Sipariş numarası öneki: NA-2026-000123. */
   orderPrefix: string;
+  /**
+   * Verilirse sipariş numarası öneksiz düz sayıdır ve bu değerden başlar
+   * (1001, 1002, …). Düz numara yalnız bir mağazada kullanılmalı: numara
+   * tüm mağazalarda tekildir.
+   */
+  plainOrderStart?: number;
 }
 
 export const STORE_META: Record<StoreId, StoreMeta> = {
-  mixle: { id: 'mixle', label: 'Mixle', orderPrefix: 'NA' },
+  mixle: { id: 'mixle', label: 'Mixle', orderPrefix: 'NA', plainOrderStart: 1001 },
   nuclear: { id: 'nuclear', label: 'Nuclear Likit', orderPrefix: 'NL' },
   kanzi: { id: 'kanzi', label: 'KanziVape', orderPrefix: 'KV' },
 };

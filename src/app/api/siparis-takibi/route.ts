@@ -32,12 +32,12 @@ export async function POST(request: Request) {
       );
     }
     const { no, email } = await readJsonBody<{ no?: string; email?: string }>(request);
-    const orderNumber = (no ?? '').trim().toUpperCase();
+    const orderNumber = (no ?? '').trim().replace(/^#/, '').toUpperCase();
     const mail = (email ?? '').trim().toLocaleLowerCase('tr');
 
     if (!ORDER_NUMBER_PATTERN.test(orderNumber) || !mail) {
       return Response.json(
-        { error: 'invalid', message: 'Sipariş numarası (NA-YYYY-000000) ve e-posta gerekli.' },
+        { error: 'invalid', message: 'Sipariş numarası ve e-posta gerekli.' },
         { status: 422 },
       );
     }

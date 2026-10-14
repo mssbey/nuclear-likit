@@ -17,6 +17,8 @@ import { formatMinor } from '@/lib/money';
 import { paymentMethodLabel } from '@/lib/payment-labels';
 import { site } from '@/lib/site';
 import { getStoreBrand, type StoreBrand } from '../settings';
+import { currentStore } from '../store-context';
+import { renderEmailHtml, type EmailOrder } from './email-html';
 
 export type EmailTemplateKey =
   | 'siparis-alindi'
@@ -37,6 +39,110 @@ interface Template {
   subject: string;
   body: string;
 }
+
+/**
+ * HTML e-postanın başlığı ve kısa metni. Sipariş tablosu (ürünler + toplamlar)
+ * ve buton ayrıca eklenir; bu yüzden metin, düz metindeki toplam/bağlantı
+ * satırlarını tekrar etmez. Tanımsız şablonlarda HTML, düz metinden üretilir.
+ */
+interface HtmlTemplate {
+  heading: string;
+  intro: string;
+  /** Buton: `takipLinki` değişkenine gider. */
+  cta?: string;
+  /** Sipariş kalemleri ve toplamlar gösterilsin mi (varsayılan: sipariş varsa evet). */
+  showOrder?: boolean;
+}
+
+const HTML_TEMPLATES: Partial<Record<EmailTemplateKey, HtmlTemplate>> = {
+  'siparis-alindi': {
+    heading: 'Siparişiniz alındı',
+    intro: `Merhaba {{musteriAdi}},
+
+Siparişiniz için teşekkür ederiz. Ödemeniz onaylandığında siparişinizi hazırlamaya başlayacağız.
+
+{{odemeTalimati}}
+
+Kabul ettiğiniz Mesafeli Satış Sözleşmesi (sürüm {{sozlesmeSurumu}}) ve Ön Bilgilendirme Formu bu e-postanın ekinde yer alır.`,
+    cta: 'Siparişimi görüntüle',
+  },
+  'odeme-basarili': {
+    heading: 'Ödemeniz alındı, siparişiniz hazırlanıyor',
+    intro: `Merhaba {{musteriAdi}},
+
+Siparişinizin ödemesi başarıyla alındı. Siparişiniz hazırlanıyor; kargoya verildiğinde size haber vereceğiz.`,
+    cta: 'Siparişimi görüntüle',
+  },
+  'odeme-basarisiz': {
+    heading: 'Ödemeniz alınamadı',
+    intro: `Merhaba {{musteriAdi}},
+
+Siparişiniz için ödeme alınamadı. Siparişiniz bekliyor; aşağıdaki butondan yeniden ödeme yapabilirsiniz.`,
+    cta: 'Yeniden öde',
+  },
+  'kargoya-verildi': {
+    heading: 'Siparişinizin hazırlanma işlemi tamamlanmıştır',
+    intro: `Merhaba {{musteriAdi}},
+
+Siparişiniz {{kargoFirmasi}} ile yola çıktı.
+
+Takip numarası: {{kargoTakipNo}}
+Kargo takip: {{kargoTakipLinki}}`,
+    cta: 'Siparişimi görüntüle',
+  },
+  'teslim-edildi': {
+    heading: 'Siparişiniz teslim edildi',
+    intro: `Merhaba {{musteriAdi}},
+
+Siparişiniz teslim edildi. Keyifli kullanımlar!
+
+Cayma hakkınız teslim tarihinden itibaren {{caymaGun}} gündür.`,
+    cta: 'Siparişimi görüntüle',
+  },
+  iptal: {
+    heading: 'Siparişiniz iptal edildi',
+    intro: `Merhaba {{musteriAdi}},
+
+Siparişiniz iptal edildi. Ödeme yaptıysanız iade işlemi başlatılmıştır.`,
+  },
+  'iade-onayi': {
+    heading: 'İade talebiniz alındı',
+    intro: `Merhaba {{musteriAdi}},
+
+Siparişiniz için iade talebiniz alındı. İnceleme sonucunu e-posta ile bildireceğiz.`,
+  },
+  'iade-talebi-onaylandi': {
+    heading: 'İade talebiniz onaylandı',
+    intro: `Merhaba {{musteriAdi}},
+
+Siparişiniz için iade talebiniz onaylandı.
+
+{{iadeTalimati}}
+
+Ürün elimize ulaştığında iade işleminizi tamamlayıp size bilgi vereceğiz.`,
+  },
+  'iade-talebi-reddedildi': {
+    heading: 'İade talebiniz hakkında',
+    intro: `Merhaba {{musteriAdi}},
+
+Siparişiniz için açtığınız iade talebini inceledik.
+
+Sonuç: {{redSebebi}}
+
+Sorularınız için bize ulaşabilirsiniz.`,
+    showOrder: false,
+  },
+  'iade-tamamlandi': {
+    heading: 'İadeniz tamamlandı',
+    intro: `Merhaba {{musteriAdi}},
+
+Siparişinizin iadesi tamamlandı. {{iadeTutari}} ödeme yönteminize iade edildi.`,
+  },
+  'yeni-siparis-yonetici': {
+    heading: 'Yeni sipariş',
+    intro: `Müşteri: {{musteriAdi}} ({{musteriEposta}})`,
+  },
+};
 
 const TEMPLATES: Record<EmailTemplateKey, Template> = {
   'siparis-alindi': {
@@ -180,12 +286,8 @@ export type EmailVars = Record<string, string | number | null | undefined>;
  * değişkenlerden SONRA doldurulur: `orderEmailVars` bağlantıları `{{siteUrl}}`
  * ile kurar ki panel başka mağazanın e-postasını doğru adresle gönderebilsin.
  */
-export function renderTemplate(
-  key: EmailTemplateKey,
-  vars: EmailVars,
-  brand: StoreBrand = { name: site.name, url: site.domain.replace(/\/$/, '') },
-): Template {
-  const fill = (text: string) =>
+function filler(vars: EmailVars, brand: StoreBrand) {
+  return (text: string) =>
     text
       .replace(/\{\{(\w+)\}\}/g, (match, name: string) => {
         if (name === 'magazaAdi' || name === 'siteUrl') return match;
@@ -194,8 +296,59 @@ export function renderTemplate(
       })
       .replace(/\{\{magazaAdi\}\}/g, brand.name)
       .replace(/\{\{siteUrl\}\}/g, brand.url);
+}
+
+const DEFAULT_BRAND: StoreBrand = { name: site.name, url: site.domain.replace(/\/$/, '') };
+
+export function renderTemplate(key: EmailTemplateKey, vars: EmailVars, brand: StoreBrand = DEFAULT_BRAND): Template {
+  const fill = filler(vars, brand);
   const t = TEMPLATES[key];
   return { subject: fill(t.subject), body: fill(t.body).replace(/\n{3,}/g, '\n\n') };
+}
+
+/** HTML gövde: logo, başlık, metin, (varsa) sipariş tablosu ve buton. */
+export function renderTemplateHtml(
+  key: EmailTemplateKey,
+  vars: EmailVars,
+  brand: StoreBrand = DEFAULT_BRAND,
+  opts: { order?: EmailOrder | null; logoUrl?: string | null } = {},
+): string {
+  const fill = filler(vars, brand);
+  const h = HTML_TEMPLATES[key];
+  const plain = renderTemplate(key, vars, brand);
+  const link = fill(String(vars.takipLinki ?? ''));
+  return renderEmailHtml({
+    brand,
+    logoUrl: opts.logoUrl ?? null,
+    heading: h ? fill(h.heading) : plain.subject.split(' — ')[0],
+    body: h ? fill(h.intro).replace(/\n{3,}/g, '\n\n') : plain.body,
+    order: h && h.showOrder !== false ? opts.order ?? null : null,
+    cta: h?.cta && link ? { label: h.cta, url: link } : null,
+  });
+}
+
+/** Mixle'ın logosu vitrinde `/brand/logo.png`; diğer mağazalarda ad yazıyla basılır. */
+function logoFor(brand: StoreBrand): string | null {
+  return currentStore() === 'mixle' && brand.url ? `${brand.url}/brand/logo.png` : null;
+}
+
+async function loadEmailOrder(orderId: string): Promise<EmailOrder | null> {
+  return db.order.findUnique({
+    where: { id: orderId },
+    select: {
+      orderNumber: true,
+      itemsSubtotalMinor: true,
+      discountTotalMinor: true,
+      shippingTotalMinor: true,
+      surchargeMinor: true,
+      grandTotalMinor: true,
+      paymentMethod: true,
+      items: {
+        select: { name: true, variantLabel: true, imageUrl: true, quantity: true, lineTotalMinor: true },
+        orderBy: { createdAt: 'asc' },
+      },
+    },
+  });
 }
 
 export interface QueueEmailInput {
@@ -211,7 +364,7 @@ export interface QueueEmailInput {
  * Gönderim hatası asıl işlemi (sipariş oluşturma vb.) asla düşürmez.
  */
 export async function queueEmail(input: QueueEmailInput): Promise<void> {
-  const brand = await getStoreBrand().catch(() => undefined);
+  const brand = await getStoreBrand().catch(() => DEFAULT_BRAND);
   const { subject, body } = renderTemplate(input.template, input.vars, brand);
   let row: { id: string } | null = null;
   try {
@@ -235,7 +388,15 @@ export async function queueEmail(input: QueueEmailInput): Promise<void> {
   if (DEMO_MODE) return;
   try {
     const { sendMailNow } = await import('./mailer');
-    const result = await sendMailNow(input.to, subject, body);
+    let html: string | undefined;
+    try {
+      const order = input.orderId ? await loadEmailOrder(input.orderId) : null;
+      html = renderTemplateHtml(input.template, input.vars, brand, { order, logoUrl: logoFor(brand) });
+    } catch (err) {
+      // HTML üretilemezse düz metin gövdesinden basit HTML ile gönderilir.
+      console.error('[e-posta] HTML üretilemedi:', err);
+    }
+    const result = await sendMailNow(input.to, subject, body, html);
     await db.emailLog.update({
       where: { id: row.id },
       data: result.ok
