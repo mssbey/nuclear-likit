@@ -198,7 +198,13 @@ export function CheckoutClient({ customer, addresses, legal, store }: Props) {
     setSubmitting(true);
     try {
       const result = await checkoutApi.createOrder(body, idempotencyKey);
-      if (result.nextUrl) {
+      if (result.nextUrl && /^https?:\/\//.test(result.nextUrl)) {
+        // Kart, gerçek sağlayıcı (Tosla vb.): ödeme sayfası dış alan adında, adrese
+        // ek yapılmaz. Sipariş oluştu, sepet boşalır; ödeme başarısız olursa
+        // sipariş sayfasından yeniden denenir.
+        clearCart();
+        window.location.assign(result.nextUrl);
+      } else if (result.nextUrl) {
         // Kart: doğrulama sayfası, ödeme onaylanınca sepeti temizler.
         router.push(`${result.nextUrl}&d=${encodeURIComponent(result.thankYouUrl)}`);
       } else {
