@@ -97,7 +97,6 @@ export function CheckoutClient({ customer, addresses, legal, store }: Props) {
   const [billingErrors, setBillingErrors] = useState<AddressErrors>({});
   const [shippingMethodId, setShippingMethodId] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<PaymentId | ''>('');
-  const [installment, setInstallment] = useState(1);
   const [customerNote, setCustomerNote] = useState('');
   const [consents, setConsents] = useState<Consents>({ distanceSales: false, preInfo: false, kvkk: false, marketing: false });
   const [consentError, setConsentError] = useState<string | null>(null);
@@ -112,7 +111,6 @@ export function CheckoutClient({ customer, addresses, legal, store }: Props) {
 
   const bookAddress = shippingSel !== 'yeni' ? shippingBook.find((x) => x.id === shippingSel) : undefined;
   const activeShipping: AddressFormValues = bookAddress ? viewToForm(bookAddress) : shipping;
-  const installmentChoices = quote?.paymentOptions.find((p) => p.id === 'kart')?.installments ?? [];
 
   const quoteKey = useDebounced(JSON.stringify({ lines, city: activeShipping.city, shippingMethodId, paymentMethod, couponCode, email }), 300);
   useEffect(() => {
@@ -165,7 +163,6 @@ export function CheckoutClient({ customer, addresses, legal, store }: Props) {
       paymentMethod: paymentMethod as PaymentId,
       couponCode: couponCode || undefined,
       customerNote: customerNote || undefined,
-      installment: paymentMethod === 'kart' ? installment : undefined,
       consents,
     };
     if (shippingSel !== 'yeni') body.shippingAddressId = shippingSel;
@@ -444,23 +441,6 @@ export function CheckoutClient({ customer, addresses, legal, store }: Props) {
             })}
             {!quote && <p className="text-sm text-muted">Ödeme seçenekleri yükleniyor…</p>}
           </div>
-          {paymentMethod === 'kart' && installmentChoices.length > 1 && (
-            <fieldset className="mt-4 rounded-xl border border-line p-4">
-              <legend className="px-1 text-xs font-semibold">Taksit</legend>
-              <div className="grid gap-2 sm:grid-cols-2">
-                {installmentChoices.map((o) => (
-                  <label key={o.count} className={cn(radioCard(installment === o.count), 'min-h-11 items-center justify-between py-2.5')}>
-                    <span className="flex items-center gap-2">
-                      <input type="radio" name="co-installment" className="h-4 w-4 accent-[#B6FF3B]" checked={installment === o.count} onChange={() => setInstallment(o.count)} />
-                      {o.count === 1 ? 'Tek çekim' : `${o.count} taksit`}
-                    </span>
-                    <span className="tabular text-xs text-muted">{o.count === 1 ? formatMinor(o.totalMinor) : `${o.count} × ${formatMinor(o.perMonthMinor)}`}</span>
-                  </label>
-                ))}
-              </div>
-              <p className="field-hint">Taksit ve vade farkı bankana göre ödeme sayfasında kesinleşir.</p>
-            </fieldset>
-          )}
           <p className="mt-4 flex items-center gap-2 text-xs text-muted">
             <Lock size={14} className="text-accent" aria-hidden="true" /> Kart bilgilerin bizde saklanmaz; ödeme bankanın 3D Secure sayfasında alınır.
           </p>

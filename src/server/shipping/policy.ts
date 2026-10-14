@@ -63,7 +63,8 @@ function summarizeZones(zones: ShippingZoneRule[]): ShippingPolicy['zones'] {
       name: z.name,
       cities: z.cities,
       methods: [...z.methods]
-        .filter((m) => m.isActive)
+        // Vitrinde kapıda ödeme yok; kapıda kargo yöntemi politikada listelenmez.
+        .filter((m) => m.isActive && m.type !== 'kapıda')
         .sort((a, b) => a.sortOrder - b.sortOrder)
         .map((m) => {
           const tiered = (m.type === 'desi' || m.type === 'tutara-göre') && !!m.tiers?.length;

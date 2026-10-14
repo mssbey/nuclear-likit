@@ -255,7 +255,7 @@ export async function createOrder(
       couponCode: input.couponCode,
       email,
     },
-    { customerId: ctx.customerId },
+    { customerId: ctx.customerId, panel: source !== 'web' },
   );
 
   if (quote.cart.lines.length === 0) {
@@ -419,7 +419,7 @@ export async function createOrder(
             provider: input.paymentMethod === 'kart' ? 'kart' : input.paymentMethod,
             status: 'bekliyor',
             amountMinor: t.grandTotalMinor,
-            installment: input.installment ?? 1,
+            installment: 1,
             threeDS: input.paymentMethod === 'kart',
           },
         },
@@ -475,7 +475,7 @@ export async function createOrder(
   // 5b) Kart: sağlayıcıda ödeme başlat (DEMO_MODE → mock). Yönlendirme adresi döner.
   let cardUrl: string | null = null;
   if (input.paymentMethod === 'kart' && !ctx.markPaid) {
-    const started = await startCardPayment(created.id, { installment: input.installment });
+    const started = await startCardPayment(created.id, { installment: 1 });
     cardUrl = started.url;
   }
 

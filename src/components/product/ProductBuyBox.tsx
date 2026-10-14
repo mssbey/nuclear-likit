@@ -168,7 +168,7 @@ export function ProductBuyBox({ product, children }: { product: ProductDetailDat
             <Check size={17} className="shrink-0 text-accent" aria-hidden="true" /> Sızdırmaz ve gizli paketleme
           </li>
           <li className="flex items-center gap-2.5">
-            <Check size={17} className="shrink-0 text-accent" aria-hidden="true" /> Kart, havale/EFT ve kapıda ödeme
+            <Check size={17} className="shrink-0 text-accent" aria-hidden="true" /> Kart ve havale/EFT ile ödeme
           </li>
         </ul>
 

@@ -15,8 +15,8 @@ import { loadActiveDiscountRules } from '../discounts/rules';
 import { getShippingZones } from '../shipping/zones';
 import { getStoreSettings } from '../settings';
 import { DEMO_MODE } from '../config';
-import { getPaymentSettings, installmentTables, isMethodEnabled } from '../payments/settings';
-import { installmentOptions, type InstallmentOption } from '../payments/installments';
+import { getPaymentSettings, isMethodEnabled } from '../payments/settings';
+import type { InstallmentOption } from '../payments/installments';
 
 export const PAYMENT_METHODS = ['kart', 'havale', 'kapida'] as const;
 export type PaymentMethodId = (typeof PAYMENT_METHODS)[number];
@@ -88,7 +88,7 @@ function withinLimits(l: { minMinor: number | null; maxMinor: number | null }, a
 
 export async function buildQuote(
   input: QuoteInput,
-  who: { customerId: string | null },
+  who: { customerId: string | null; /** Panelden manuel sipariş: kapıda ödeme yalnız orada sunulur. */ panel?: boolean },
 ): Promise<CheckoutQuote> {
   const settings = await getStoreSettings();
   const cart = await priceCart(input.lines);
@@ -135,7 +135,10 @@ export async function buildQuote(
     desi: cart.weightKg,
     freeShippingCoupon: couponFreeShipping,
   };
-  const shippingOptions = input.city ? quoteShipping(zones, { ...shipCtx, city: input.city }) : [];
+  // Vitrinde kapıda ödeme yok: "kapıda" tipli kargo yalnız panel siparişinde sunulur.
+  const shippingOptions = input.city
+    ? quoteShipping(zones, { ...shipCtx, city: input.city }).filter((s) => who.panel || s.type !== 'kapıda')
+    : [];
   if (input.city && cart.weightKg == null) {
     const skipped = matchZone(zones, shipCtx.country, input.city)?.methods.filter(
       (m) => m.isActive && m.type === 'desi' && m.tiers?.length,
@@ -172,7 +175,7 @@ export async function buildQuote(
   const havaleOff = !isMethodEnabled(pay, 'havale');
   const havaleLimit = !withinLimits(pay.limits.havale, grandBeforeSurcharge);
 
-  const paymentOptions: PaymentOption[] = [
+  const allPaymentOptions: PaymentOption[] = [
     {
       id: 'kart',
       label: 'Kredi / banka kartı',
@@ -189,7 +192,7 @@ export async function buildQuote(
             ? 'Kapıda ödeme kargosuyla kart kullanılamaz.'
             : null,
       testMode: DEMO_MODE,
-      installments: installmentOptions(grandBeforeSurcharge, installmentTables(pay)),
+      // Taksit kapalı: vitrinde yalnız tek çekim.
     },
     {
       id: 'havale',
@@ -224,6 +227,7 @@ export async function buildQuote(
       testMode: false,
     },
   ];
+  const paymentOptions = who.panel ? allPaymentOptions : allPaymentOptions.filter((p) => p.id !== 'kapida');
 
   const selectedPayment =
     input.paymentMethod && paymentOptions.find((p) => p.id === input.paymentMethod)?.available

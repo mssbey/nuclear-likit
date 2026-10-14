@@ -4,7 +4,7 @@ const ITEMS = [
   { icon: BadgeCheck, title: 'Orijinal ürün', text: 'Tüm ürünler orijinal kutusunda, faturalı olarak gönderilir.' },
   { icon: Truck, title: 'Hızlı kargo', text: 'Siparişler 1–3 iş günü içinde kargoya verilir.' },
   { icon: PackageCheck, title: 'Sızdırmaz paket', text: 'Darbe emici, gizli ve sızdırmaz çift katman paketleme.' },
-  { icon: CreditCard, title: 'Güvenli ödeme', text: '3D Secure kart, havale/EFT ve kapıda ödeme seçenekleri.' },
+  { icon: CreditCard, title: 'Güvenli ödeme', text: '3D Secure kart ve havale/EFT seçenekleri.' },
 ];
 
 export function ValueProps() {

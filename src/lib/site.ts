@@ -19,7 +19,7 @@ export const site = {
   },
   announcements: [
     'Tüm siparişler sızdırmaz, darbe emici paketle gönderilir',
-    'Kredi kartına taksit · havale · kapıda ödeme',
+    '3D Secure kart · havale/EFT ile güvenli ödeme',
     'Satışlar yalnızca 18 yaş ve üzeri kullanıcılara yapılır',
   ],
 } as const;

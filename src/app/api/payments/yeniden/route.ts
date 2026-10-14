@@ -27,7 +27,7 @@ export async function POST(request: Request) {
     const allowed = (me && order.customerId === me.id) || verifyOrderAccessToken(order.id, input.token);
     if (!allowed) return Response.json({ error: 'forbidden', message: 'Bu sipariş için yetkiniz yok.' }, { status: 403 });
 
-    const r = await startCardPayment(order.id, { installment: input.installment });
+    const r = await startCardPayment(order.id, { installment: 1 });
     return Response.json({ ok: true, url: r.url, provider: r.provider });
   } catch (err) {
     return storefrontError(err);
