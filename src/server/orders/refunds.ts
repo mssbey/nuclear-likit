@@ -183,7 +183,7 @@ export async function createRefund(orderId: string, raw: unknown, user: AdminUse
       }
       // Stok zaten yukarıda (restock) verildi; geçişin releaseStock'u açık rezervasyon bulamaz.
       await transitionOrder(order.id, 'iade-edildi', { userId: user.id }, { note: 'İade tamamlandı', skipEmail: true });
-    } else if (order.status === 'ödendi' || order.status === 'hazırlanıyor') {
+    } else if (['ödendi', 'hazırlanıyor', 'hazırlandı', 'beklemede'].includes(order.status)) {
       // refundedQuantity güncellendiği için iptal geçişi kalan (0) adedi yeniden stoklamaz.
       await transitionOrder(order.id, 'iptal', { userId: user.id }, { note: 'Tam iade ile iptal', skipEmail: true });
     }

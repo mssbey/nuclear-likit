@@ -11,7 +11,10 @@ export const ORDER_STATUSES = [
   'ödeme-bekliyor',
   'ödendi',
   'hazırlanıyor',
+  'hazırlandı',
+  'beklemede',
   'kargolandı',
+  'kuryeye-teslim',
   'teslim-edildi',
   'tamamlandı',
   'iptal',
@@ -49,7 +52,10 @@ export const orderStatusLabels: Record<OrderStatus, string> = {
   'ödeme-bekliyor': 'Ödeme bekliyor',
   ödendi: 'Ödendi',
   hazırlanıyor: 'Hazırlanıyor',
-  kargolandı: 'Kargolandı',
+  hazırlandı: 'Sipariş hazırlandı',
+  beklemede: 'Beklemede',
+  kargolandı: 'Kargoya verildi',
+  'kuryeye-teslim': 'Kuryeye teslim edildi',
   'teslim-edildi': 'Teslim edildi',
   tamamlandı: 'Tamamlandı',
   iptal: 'İptal edildi',
@@ -75,24 +81,39 @@ export const orderStatusLabels: Record<OrderStatus, string> = {
  *   - tamamlandı → iade-talebi: cayma hakkı 14 gün, teslimden sonra otomatik
  *     tamamlanan siparişte de iade açılabilmeli.
  *   - iade-talebi → teslim-edildi / tamamlandı: talep reddedilirse eski duruma dönüş.
+ *
+ * Eski panelden gelen operasyon durumları:
+ *   - hazırlandı ("Sipariş hazırlandı"): paket hazır, kargoya verilmeyi bekliyor.
+ *   - beklemede: sipariş askıda (müşteriyle görüşülüyor, stok bekleniyor…);
+ *     ödeme alınmış da alınmamış da olabilir, ödeme durumu değişmez.
+ *   - kuryeye-teslim ("Kuryeye teslim edildi"): kendi kuryemizle gönderim;
+ *     kargoya verildi gibi sevk edilmiş sayılır.
+ *   Hazırlık/sevk durumlarına geçişte stok kesinleşir (zaten kesinse işlem yok).
  */
+const PREP_TARGETS = ['hazırlanıyor', 'hazırlandı', 'beklemede', 'kargolandı', 'kuryeye-teslim', 'iptal'] as const;
+const without = (list: readonly OrderStatus[], s: OrderStatus) => list.filter((x) => x !== s);
+
 const TRANSITIONS: Record<OrderStatus, readonly OrderStatus[]> = {
   taslak: ['ödeme-bekliyor', 'iptal'],
-  'ödeme-bekliyor': ['ödendi', 'hazırlanıyor', 'başarısız', 'iptal'],
-  ödendi: ['hazırlanıyor', 'kargolandı', 'iptal'],
-  hazırlanıyor: ['kargolandı', 'iptal'],
-  kargolandı: ['teslim-edildi'],
+  'ödeme-bekliyor': ['ödendi', 'hazırlanıyor', 'beklemede', 'başarısız', 'iptal'],
+  ödendi: PREP_TARGETS,
+  hazırlanıyor: without(PREP_TARGETS, 'hazırlanıyor'),
+  hazırlandı: without(PREP_TARGETS, 'hazırlandı'),
+  beklemede: ['ödeme-bekliyor', 'ödendi', ...without(PREP_TARGETS, 'beklemede')],
+  kargolandı: ['kuryeye-teslim', 'teslim-edildi', 'tamamlandı'],
+  'kuryeye-teslim': ['kargolandı', 'teslim-edildi', 'tamamlandı'],
   'teslim-edildi': ['tamamlandı', 'iade-talebi'],
   tamamlandı: ['iade-talebi'],
   iptal: [],
   'iade-talebi': ['iade-edildi', 'teslim-edildi', 'tamamlandı'],
   'iade-edildi': [],
-  başarısız: ['ödeme-bekliyor', 'iptal'],
+  başarısız: ['ödeme-bekliyor', 'ödendi', 'beklemede', 'iptal'],
 };
 
 /** Kargolanmış sayılan durumlar — bunlardan iptal yapılamaz, iade gerekir. */
 export const SHIPPED_STATUSES: readonly OrderStatus[] = [
   'kargolandı',
+  'kuryeye-teslim',
   'teslim-edildi',
   'tamamlandı',
   'iade-talebi',
@@ -112,7 +133,9 @@ export const TERMINAL_STATUSES: readonly OrderStatus[] = ['iptal', 'iade-edildi'
 export const REVENUE_STATUSES: readonly OrderStatus[] = [
   'ödendi',
   'hazırlanıyor',
+  'hazırlandı',
   'kargolandı',
+  'kuryeye-teslim',
   'teslim-edildi',
   'tamamlandı',
   'iade-talebi',
@@ -180,12 +203,15 @@ export function effectsOf(from: OrderStatus, to: OrderStatus): TransitionEffects
     case 'ödendi':
       return { ...none, commitStock: true, email: 'odeme-basarili', stamp: 'paidAt' };
     case 'hazırlanıyor':
-      // Kapıda ödeme: ödeme beklenirken hazırlığa geçince stok kesinleşir.
-      return { ...none, commitStock: from === 'ödeme-bekliyor' };
+    case 'hazırlandı':
+    case 'kuryeye-teslim':
+      // Hazırlık/sevk: stok kesinleşir (ödendi'de zaten kesinleştiyse işlem yok).
+      // Kuryeye teslimde kargo takip bilgisi olmadığından e-posta gitmez.
+      return { ...none, commitStock: true };
     case 'başarısız':
       return { ...none, email: 'odeme-basarisiz' };
     case 'kargolandı':
-      return { ...none, email: 'kargoya-verildi' };
+      return { ...none, commitStock: from !== 'kuryeye-teslim', email: from === 'kuryeye-teslim' ? null : 'kargoya-verildi' };
     case 'teslim-edildi':
       return { ...none, email: 'teslim-edildi' };
     case 'tamamlandı':
@@ -211,8 +237,10 @@ export function derivedStatuses(status: OrderStatus): {
   switch (status) {
     case 'ödendi':
     case 'hazırlanıyor':
+    case 'hazırlandı':
       return { paymentStatus: 'ödendi' };
     case 'kargolandı':
+    case 'kuryeye-teslim':
       return { paymentStatus: 'ödendi', fulfillmentStatus: 'gönderildi' };
     case 'teslim-edildi':
     case 'tamamlandı':

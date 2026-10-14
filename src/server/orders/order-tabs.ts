@@ -4,8 +4,9 @@ export const ORDER_TABS = {
   tumu: { label: 'Tümü', statuses: null },
   'odeme-bekleyen': { label: 'Ödeme bekleyen', statuses: ['ödeme-bekliyor', 'başarısız'] },
   hazirlanacak: { label: 'Hazırlanacak', statuses: ['ödendi', 'hazırlanıyor'] },
-  kargolanacak: { label: 'Kargolanacak', statuses: ['hazırlanıyor'] },
-  kargoda: { label: 'Kargoda', statuses: ['kargolandı'] },
+  kargolanacak: { label: 'Kargolanacak', statuses: ['hazırlanıyor', 'hazırlandı'] },
+  beklemede: { label: 'Beklemede', statuses: ['beklemede'] },
+  kargoda: { label: 'Kargoda', statuses: ['kargolandı', 'kuryeye-teslim'] },
   iade: { label: 'İade', statuses: ['iade-talebi', 'iade-edildi'] },
   iptal: { label: 'İptal / başarısız', statuses: ['iptal', 'başarısız'] },
 } as const;

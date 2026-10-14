@@ -49,7 +49,7 @@ export class ShipmentError extends Error {
   }
 }
 
-const SHIPPABLE_ORDER_STATUSES = new Set(['ödendi', 'hazırlanıyor', 'kargolandı']);
+const SHIPPABLE_ORDER_STATUSES = new Set(['ödendi', 'hazırlanıyor', 'hazırlandı', 'beklemede', 'kargolandı']);
 
 async function shippedQuantities(orderId: string): Promise<Map<string, number>> {
   const shipments = await db.shipment.findMany({
@@ -217,7 +217,7 @@ export async function updateShipment(shipmentId: string, raw: unknown, user: Adm
   if (input.status === 'teslim-edildi') {
     const all = await db.shipment.findMany({ where: { orderId: shipment.orderId, status: { notIn: ['iade-yolda', 'kayıp'] } } });
     const allDelivered = all.length > 0 && all.every((s) => s.status === 'teslim-edildi');
-    if (allDelivered && shipment.order.status === 'kargolandı') {
+    if (allDelivered && (shipment.order.status === 'kargolandı' || shipment.order.status === 'kuryeye-teslim')) {
       await transitionOrder(shipment.orderId, 'teslim-edildi', { userId: user.id }, { note: 'Tüm sevkiyatlar teslim edildi', visibleToCustomer: true });
       await transitionOrder(shipment.orderId, 'tamamlandı', { userId: user.id }, { note: 'Teslimat sonrası otomatik tamamlandı', skipEmail: true });
     }
