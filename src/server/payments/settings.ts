@@ -192,6 +192,32 @@ export function installmentTables(s: PaymentSettings): BankInstallmentTable[] {
   return Array.isArray(t) && t.length ? t : DEFAULT_INSTALLMENTS;
 }
 
+export interface HavaleDetails {
+  bankName: string;
+  accountHolder: string;
+  /** Dörtlü gruplar halinde ("TR94 0001 ..."); tanımlı değilse boş. */
+  iban: string;
+  instructions: string;
+}
+
+/** Havale/EFT banka bilgisi — sipariş sayfası ve sipariş e-postası aynı bilgiyi gösterir (Panel > Ödemeler). */
+export function havaleDetails(s: PaymentSettings): HavaleDetails {
+  const raw = s.havale.iban.replace(/\s+/g, '').toUpperCase();
+  return {
+    bankName: s.havale.bankName.trim(),
+    accountHolder: s.havale.accountHolder.trim(),
+    iban: raw.replace(/(.{4})(?=.)/g, '$1 '),
+    instructions: s.havale.instructions.trim(),
+  };
+}
+
+/** E-posta için düz metin: hesap bilgisi ve mağazanın havale açıklaması. */
+export function havaleText(d: HavaleDetails): string {
+  const account = [d.accountHolder, d.bankName].filter(Boolean).join(' - ');
+  const bank = d.iban ? ['Banka bilgilerimiz', account, `IBAN: ${d.iban}`].filter(Boolean).join('\n') : '';
+  return [bank, d.instructions].filter(Boolean).join('\n\n');
+}
+
 export function isMethodEnabled(s: PaymentSettings, id: 'kart' | 'havale' | 'kapida'): boolean {
   return s.methods.find((m) => m.id === id)?.enabled ?? false;
 }

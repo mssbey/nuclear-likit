@@ -32,7 +32,7 @@ export async function getProductCampaigns(
         return [{
           id: r.id,
           title: `${buy} Al ${pay} Öde!`,
-          detail: `Kampanyalı ürünlerden ${buy} adet alana ${free === 1 ? 'en ucuzu' : `en ucuz ${free} adet`} bedava. İndirim sepette otomatik uygulanır.`,
+          detail: `Kampanyalı ürünlerimizden ${buy} adet alımda ${free} adet ürün bedava.\nKampanya sepette otomatik uygulanacaktır.`,
           startsAt: r.startsAt,
           endsAt: r.endsAt,
         }];

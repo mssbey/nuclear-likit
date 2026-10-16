@@ -109,6 +109,28 @@ export const campaign = {
   image: '/images/products/puff/triple-melon-drifter-bar-aroma.webp',
 };
 
+const searchHref = (q: string) => `/arama?q=${encodeURIComponent(q)}`;
+const refBanner = (n: number, alt: string, href: string) => ({ image: `/images/reference/${n}.jpg`, alt, href });
+
+/** Ana sayfa marka bannerları — panelde kayıt yoksa görünen varsayılan (mixle.net ile aynı sıra). */
+export const homeBanners = {
+  top: [
+    refBanner(3, 'Santa aromaları', searchHref('Santa')),
+    refBanner(4, 'Halo aromaları', searchHref('Halo')),
+    refBanner(5, 'Twelve Monkeys aromaları', searchHref('Twelve Monkeys')),
+    refBanner(6, 'Cuttwood aromaları', searchHref('Cuttwood')),
+  ],
+  middle: [
+    refBanner(7, 'Cosmic Fog aromaları', searchHref('Cosmic Fog')),
+    refBanner(8, 'Suicide Bunny aromaları', searchHref('Suicide Bunny')),
+    refBanner(9, 'Capella aromaları', '/kategori/capella'),
+  ],
+  bottom: [
+    refBanner(10, 'Humble Juice aromaları', searchHref('Humble')),
+    refBanner(11, 'One Hit Wonder aromaları', searchHref('One Hit Wonder')),
+  ],
+};
+
 export interface TimelineItem {
   year: string;
   title: string;

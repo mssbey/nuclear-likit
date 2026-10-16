@@ -360,7 +360,7 @@ const tokenHashOf = (token: string) => createHash('sha256').update(token).digest
 /**
  * Sıfırlama bağlantısı gönderir. Hesabın var olup olmadığı yanıttan anlaşılmaz:
  * çağıran her durumda aynı mesajı gösterir. Yalnız sosyal girişli hesap da bu
- * yolla parola belirleyebilir; misafir kaydına bağlantı gönderilmez (önce kayıt).
+ * yolla parola belirleyebilir; misafir kaydına parola yerine üye olma bağlantısı gider.
  */
 export async function requestPasswordReset(rawEmail: string): Promise<void> {
   const email = z.string().trim().email().max(200).safeParse(rawEmail);
@@ -369,12 +369,24 @@ export async function requestPasswordReset(rawEmail: string): Promise<void> {
   const customer = await db.customer.findUnique({
     where: { store_email: { store: currentStore(), email: email.data.toLocaleLowerCase('tr') } },
   });
-  if (!customer || customer.isGuest || customer.anonymizedAt) return;
+  if (!customer || customer.anonymizedAt) return;
 
   const recent = await db.passwordResetToken.count({
     where: { customerId: customer.id, createdAt: { gte: new Date(Date.now() - 60 * 60 * 1000) } },
   });
   if (recent >= RESET_PER_HOUR) return;
+
+  // Misafir kaydında parola yok: üye olma bağlantısı gönderilir. Sayaç için
+  // kullanılmış (geçersiz) bir kayıt yazılır ki bu yol da saatte 3'le sınırlı kalsın.
+  if (customer.isGuest) {
+    const now = new Date();
+    await db.passwordResetToken.create({
+      data: { tokenHash: tokenHashOf(randomBytes(32).toString('base64url')), customerId: customer.id, expiresAt: now, usedAt: now },
+    });
+    const kayitLinki = `{{siteUrl}}/kayit?eposta=${encodeURIComponent(customer.email)}`;
+    await queueEmail({ to: customer.email, template: 'parola-uyelik-yok', vars: { kayitLinki, butonLinki: kayitLinki } });
+    return;
+  }
 
   const token = randomBytes(32).toString('base64url');
   await db.passwordResetToken.create({
@@ -387,7 +399,7 @@ export async function requestPasswordReset(rawEmail: string): Promise<void> {
   await queueEmail({
     to: customer.email,
     template: 'parola-sifirla',
-    vars: { sifirlamaLinki: `{{siteUrl}}/sifre-sifirla?t=${token}` },
+    vars: { sifirlamaLinki: `{{siteUrl}}/sifre-sifirla?t=${token}`, butonLinki: `{{siteUrl}}/sifre-sifirla?t=${token}` },
   });
 }
 

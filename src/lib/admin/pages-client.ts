@@ -1,6 +1,6 @@
 'use client';
 
-// Panel içerik sayfaları (SSS, kampanya bandı, üst menü, mega menü) uçları için istemci sarmalayıcısı.
+// Panel içerik sayfaları (SSS, kampanya bandı, ana sayfa bannerları, üst menü, mega menü) uçları için istemci sarmalayıcısı.
 
 import { ApiError, fetchWithRetry } from './client';
 import type { MegaMenuContent } from '@/lib/mega-menu';
@@ -31,11 +31,16 @@ export interface CampaignContent {
 export interface NavMenuLink { label: string; href: string; emphasis: boolean }
 export interface NavMenuContent { links: NavMenuLink[] }
 
+export interface HomeBannerItem { image: string; alt: string; href: string }
+export interface HomeBannersContent { top: HomeBannerItem[]; middle: HomeBannerItem[]; bottom: HomeBannerItem[] }
+
 export const pagesApi = {
   getFaq: () => request<FaqContent>('/api/admin/pages/sss', { cache: 'no-store' }),
   saveFaq: (body: FaqContent) => request<FaqContent>('/api/admin/pages/sss', { method: 'PUT', body: JSON.stringify(body) }),
   getCampaign: () => request<CampaignContent>('/api/admin/pages/kampanya', { cache: 'no-store' }),
   saveCampaign: (body: CampaignContent) => request<CampaignContent>('/api/admin/pages/kampanya', { method: 'PUT', body: JSON.stringify(body) }),
+  getHomeBanners: () => request<HomeBannersContent>('/api/admin/pages/bannerlar', { cache: 'no-store' }),
+  saveHomeBanners: (body: HomeBannersContent) => request<HomeBannersContent>('/api/admin/pages/bannerlar', { method: 'PUT', body: JSON.stringify(body) }),
   getNavMenu: () => request<NavMenuContent>('/api/admin/pages/menu', { cache: 'no-store' }),
   saveNavMenu: (body: NavMenuContent) => request<NavMenuContent>('/api/admin/pages/menu', { method: 'PUT', body: JSON.stringify(body) }),
   /** Kayıt yoksa null — editör kategori ağacından varsayılanı kurar. */

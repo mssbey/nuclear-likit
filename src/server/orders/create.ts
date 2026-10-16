@@ -18,6 +18,7 @@ import { seal, isEncryptionConfigured, tryOpen } from '../crypto/secret-box';
 import { reserveStock, releaseExpiredReservations } from '../inventory/reserve';
 import { getCurrentLegal } from '../legal/documents';
 import { orderEmailVars, queueEmail } from '../notifications/email';
+import { getEmailSettings } from '../notifications/settings';
 import { getStoreInfo, getStoreSettings } from '../settings';
 import { addressInputSchema, type AddressInput, type AddressSnapshot } from '../customers/address-schema';
 import { nextOrderNumber } from './numbering';
@@ -26,6 +27,7 @@ import { thankYouUrl } from './access';
 import { PAYMENT_METHODS, buildQuote, quoteInputSchema, type CheckoutQuote } from './quote';
 import { transitionOrder } from './transitions';
 import { startCardPayment } from '../payments/start';
+import { getPaymentSettings, havaleDetails, havaleText } from '../payments/settings';
 
 export const consentsSchema = z.object({
   distanceSales: z.literal(true, { errorMap: () => ({ message: 'Mesafeli satış sözleşmesini onaylamalısınız' }) }),
@@ -493,11 +495,29 @@ export async function createOrder(
   const vars = {
     ...orderEmailVars({ ...created, customer: null }),
     sozlesmeSurumu: legalDs.version,
-    odemeTalimati: paymentInstruction(input.paymentMethod, info),
+    odemeTalimati: await paymentInstruction(input.paymentMethod, info),
   };
   await queueEmail({ to: email, template: 'siparis-alindi', vars, orderId: created.id });
-  if (info.notifyEmail) {
-    await queueEmail({ to: info.notifyEmail, template: 'yeni-siparis-yonetici', vars, orderId: created.id });
+  // Mağaza sahibine bilgi e-postası: panelde ayrı adres yoksa gönderen adrese (ör. info@mixle.net).
+  const notifyTo = info.notifyEmail || (await getEmailSettings().catch(() => null))?.fromEmail || '';
+  if (notifyTo) {
+    const s = shippingSnapshot;
+    const panelLinki = `{{siteUrl}}/admin/siparisler/${created.id}`;
+    await queueEmail({
+      to: notifyTo,
+      template: 'yeni-siparis-yonetici',
+      vars: {
+        ...vars,
+        musteriAdi: `${s.firstName} ${s.lastName}`.trim(),
+        musteriEposta: email,
+        musteriTelefon: s.phone,
+        teslimatAdresi: [s.addressLine, s.neighborhood, `${s.district} / ${s.city}`, s.postalCode].filter(Boolean).join(', '),
+        musteriNotu: input.customerNote || '—',
+        panelLinki,
+        butonLinki: panelLinki,
+      },
+      orderId: created.id,
+    });
   }
 
   return {
@@ -512,10 +532,14 @@ export async function createOrder(
   };
 }
 
-function paymentInstruction(method: string, info: { legalName: string }): string {
+async function paymentInstruction(method: string, info: { legalName: string }): Promise<string> {
   switch (method) {
-    case 'havale':
+    case 'havale': {
+      // Banka bilgisi Panel > Ödemeler > Havale/EFT'den gelir; IBAN girilmemişse eski genel metin.
+      const details = havaleDetails(await getPaymentSettings());
+      if (details.iban) return havaleText(details);
       return `Havale/EFT ile ödeme için IBAN bilgisi sipariş sayfanızda gösterilir. Açıklama alanına sipariş numaranızı yazın. Ödeme ${info.legalName} tarafından onaylanınca siparişiniz hazırlanır.`;
+    }
     case 'kapida':
       return 'Ödemeyi teslimat sırasında kuryeye nakit veya kartla yapabilirsiniz.';
     default:

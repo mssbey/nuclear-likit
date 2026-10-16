@@ -25,7 +25,7 @@ import { DEFAULT_STORE, type StoreId } from '@/lib/stores';
 import { readSettingValue, writeSetting } from '../settings';
 import { currentStore } from '../store-context';
 import { notifyStorefronts } from '../storefront-sync';
-import { faqGroups as defaultFaqGroups, campaign as defaultCampaign } from '@/data/content';
+import { faqGroups as defaultFaqGroups, campaign as defaultCampaign, homeBanners as defaultHomeBanners } from '@/data/content';
 import { primaryNav as defaultPrimaryNav } from '@/data/nav';
 import { MEGA_MENU_MAX_COLUMNS, type MegaMenuContent } from '@/lib/mega-menu';
 
@@ -107,11 +107,25 @@ export const megaMenuContentSchema = z.object({
     .max(MEGA_MENU_MAX_COLUMNS, `En fazla ${MEGA_MENU_MAX_COLUMNS} sütun`),
 }) satisfies z.ZodType<MegaMenuContent, z.ZodTypeDef, unknown>;
 
-const KEYS = { faq: 'sayfa-sss', campaign: 'sayfa-kampanya', navMenu: 'menu-ust', megaMenu: 'menu-mega' } as const;
+/** Ana sayfadaki üç marka banner satırı: her banner bir görsel ve tıklanınca açılan bağlantı. */
+const homeBannerSchema = z.object({
+  image: z.string().trim().min(1, 'Görsel gerekli').max(300),
+  alt: z.string().trim().max(120).default(''),
+  href: hrefSchema,
+});
+export const homeBannersContentSchema = z.object({
+  top: z.array(homeBannerSchema).max(8, 'Bir satırda en fazla 8 banner'),
+  middle: z.array(homeBannerSchema).max(8, 'Bir satırda en fazla 8 banner'),
+  bottom: z.array(homeBannerSchema).max(8, 'Bir satırda en fazla 8 banner'),
+});
+export type HomeBannersContent = z.output<typeof homeBannersContentSchema>;
+
+const KEYS = { faq: 'sayfa-sss', campaign: 'sayfa-kampanya', navMenu: 'menu-ust', megaMenu: 'menu-mega', homeBanners: 'sayfa-bannerlar' } as const;
 const FAQ_TAG = 'sayfa-sss';
 const CAMPAIGN_TAG = 'sayfa-kampanya';
 const NAV_MENU_TAG = 'menu-ust';
 const MEGA_MENU_TAG = 'menu-mega';
+const HOME_BANNERS_TAG = 'sayfa-bannerlar';
 
 // Önbellek anahtarına `unstable_cache` argümanları da girer: mağaza argüman
 // olarak verildiği için iki mağazanın içeriği ayrı önbelleklenir. Statik
@@ -166,6 +180,26 @@ const loadMegaMenu = unstable_cache(
 );
 const megaMenuFor = cache(loadMegaMenu);
 export const getMegaMenuContent = (): Promise<MegaMenuContent | null> => megaMenuFor(currentStore());
+
+const loadHomeBanners = unstable_cache(
+  async (store: StoreId): Promise<HomeBannersContent> => {
+    const parsed = homeBannersContentSchema.safeParse(await readSettingValue(KEYS.homeBanners, store));
+    if (parsed.success) return parsed.data;
+    return store === DEFAULT_STORE ? defaultHomeBanners : { top: [], middle: [], bottom: [] };
+  },
+  ['sayfa-bannerlar-icerik'],
+  { tags: [HOME_BANNERS_TAG] },
+);
+const homeBannersFor = cache(loadHomeBanners);
+export const getHomeBannersContent = (): Promise<HomeBannersContent> => homeBannersFor(currentStore());
+
+export async function saveHomeBannersContent(raw: unknown, updatedByUserId: string): Promise<HomeBannersContent> {
+  const parsed = homeBannersContentSchema.parse(raw);
+  await writeSetting(KEYS.homeBanners, parsed, updatedByUserId);
+  revalidateTag(HOME_BANNERS_TAG, 'max');
+  notifyStorefronts();
+  return parsed;
+}
 
 export async function saveMegaMenuContent(raw: unknown, updatedByUserId: string): Promise<MegaMenuContent> {
   const parsed = megaMenuContentSchema.parse(raw);
